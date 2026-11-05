@@ -94,6 +94,14 @@ def test_log_repo_claim_once(repos):
     assert repos["log"].claim(sub.id, DUE + timedelta(days=30)) is True
 
 
+def test_log_repo_release_allows_reclaim(repos):
+    sub = add_sub(repos)
+    assert repos["log"].claim(sub.id, DUE) is True
+    repos["log"].release(sub.id, DUE)
+    repos["log"].release(sub.id, DUE)  # absent: no error
+    assert repos["log"].claim(sub.id, DUE) is True
+
+
 # --- service ---
 
 
@@ -164,6 +172,47 @@ def test_network_error_does_not_abort(repos):
     add_sub(repos)
     add_push(repos)
     assert run(repos, FakeSender(error=ConnectionError("down")))["sent"] == 0
+
+
+def test_all_sends_fail_claim_released_and_retried(repos):
+    add_sub(repos)
+    add_push(repos)
+    failing = FakeSender(error=ConnectionError("down"))
+    assert run(repos, failing) == {"due": 1, "sent": 0, "removed": 0}
+    assert run(repos, failing) == {"due": 1, "sent": 0, "removed": 0}  # claim was released, so it is retried
+    ok = FakeSender()
+    assert run(repos, ok) == {"due": 1, "sent": 1, "removed": 0}
+    assert len(ok.calls) == 1
+    assert run(repos, ok) == {"due": 0, "sent": 0, "removed": 0}  # success is never resent
+
+
+def test_partial_success_keeps_claim(repos):
+    add_sub(repos)
+    add_push(repos, "https://push.example/bad")
+    add_push(repos, "https://push.example/ok")
+    flaky = FakeSender(fail={"https://push.example/bad": 500})
+    assert run(repos, flaky) == {"due": 1, "sent": 1, "removed": 0}
+    again = FakeSender()
+    assert run(repos, again) == {"due": 0, "sent": 0, "removed": 0}
+    assert again.calls == []
+
+
+def test_no_push_subscriptions_releases_claim(repos):
+    sub = add_sub(repos)
+    assert run(repos, FakeSender()) == {"due": 1, "sent": 0, "removed": 0}
+    assert repos["log"].claim(sub.id, DUE) is True  # was released
+    repos["log"].release(sub.id, DUE)
+    add_push(repos)
+    sender = FakeSender()
+    assert run(repos, sender)["sent"] == 1
+
+
+def test_gone_without_other_success_releases_claim(repos):
+    sub = add_sub(repos)
+    add_push(repos, "https://push.example/gone")
+    assert run(repos, FakeSender(fail={"https://push.example/gone": 410})) == {"due": 1, "sent": 0, "removed": 1}
+    assert repos["push"].list() == []
+    assert repos["log"].claim(sub.id, DUE) is True  # was released
 
 
 @pytest.mark.parametrize("status", [SubscriptionStatus.paused, SubscriptionStatus.cancelled])

@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -54,3 +54,11 @@ class ReminderLogRepository:
             .returning(ReminderLog.id)
         )
         return self.db.execute(stmt).scalar_one_or_none() is not None
+
+    def release(self, subscription_id: uuid.UUID, renewal_date: dt.date) -> None:
+        """Delete this renewal's claim so a later run can retry it; a no-op when there is none."""
+        self.db.execute(
+            delete(ReminderLog).where(
+                ReminderLog.subscription_id == subscription_id, ReminderLog.renewal_date == renewal_date
+            )
+        )

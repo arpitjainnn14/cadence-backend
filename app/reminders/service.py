@@ -70,10 +70,12 @@ def run_reminders(
 ) -> dict[str, int]:
     """Remind about active subscriptions renewing exactly 2 days from `today`.
 
-    Each (subscription, renewal date) is claimed in the reminder log before sending, so it is
-    reminded at most once. Trade-off: if every delivery fails, the claim stays and there is no retry.
-    If the request raises mid-run, the claims roll back but sends already made stay sent,
-    so a same-day re-run may duplicate.
+    The job is scheduled 3x daily (09:00, 13:00, 18:00 IST). Each (subscription, renewal date) is claimed in the
+    reminder log before sending, so concurrent runs cannot both send it. The claim is kept only if at least one
+    delivery succeeded, so a success is never resent. If no delivery succeeded (every send failed, the endpoints
+    were gone, or there are no push subscriptions) the claim is released and the next run that day retries it.
+    If the request raises mid-run, the claims roll back but sends already made stay sent, so a same-day re-run
+    may duplicate.
     """
     target = today + timedelta(days=REMINDER_DAYS)
     due = sent = removed = 0
@@ -89,4 +91,6 @@ def run_reminders(
         s, r = send_to_all(push_repo, sender, payload, targets)
         sent += s
         removed += r
+        if s == 0:
+            reminder_log.release(sub.id, target)
     return {"due": due, "sent": sent, "removed": removed}
