@@ -1,7 +1,7 @@
 [project]
 name = "subs-backend"
 version = "0.1.0"
-description = "FastAPI + Postgres backend for Subs, a single-user subscription tracker"
+description = "FastAPI + Postgres backend for Cadence, a single-user subscription tracker"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.1",

@@ -64,7 +64,7 @@ def unsubscribe(data: PushUnsubscribeIn, repo: PushRepo) -> Response:
 @router.post("/test", response_model=PushResult)
 def test_push(repo: PushRepo, sender: Sender) -> PushResult:
     sent, removed = service.send_to_all(
-        repo, sender, {"title": "Subs", "body": "Test notification from Subs", "url": "/"}
+        repo, sender, {"title": "Cadence", "body": "Test notification from Cadence", "url": "/"}
     )
     return PushResult(sent=sent, removed=removed)
 

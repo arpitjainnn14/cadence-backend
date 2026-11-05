@@ -271,7 +271,7 @@ def test_push_test(auth, sender, repos):
     sender.fail = {"https://push.example/gone": 404}
     r = auth.post("/api/push/test", headers=h)
     assert r.json() == {"sent": 1, "removed": 1}
-    assert sender.calls[0][1]["body"] == "Test notification from Subs"
+    assert sender.calls[0][1]["body"] == "Test notification from Cadence"
 
 
 def test_default_sender_calls_webpush(monkeypatch, repos):

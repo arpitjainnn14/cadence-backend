@@ -13,7 +13,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     # cookie_secure means production: don't publish the API schema or interactive docs there.
     docs = {"docs_url": None, "redoc_url": None, "openapi_url": None} if settings.cookie_secure else {}
-    app = FastAPI(title="Subs", **docs)
+    app = FastAPI(title="Cadence", **docs)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

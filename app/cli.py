@@ -24,7 +24,7 @@ DEFAULT_CARDS_FILE = Path(__file__).resolve().parent.parent / "seed" / "cards.js
 UPI_APPS = ("GPay", "PhonePe", "Paytm")
 DEFAULT_USD_INR_RATE = "88"
 
-app = typer.Typer(add_completion=False, no_args_is_help=True, help="Subs operator commands.")
+app = typer.Typer(add_completion=False, no_args_is_help=True, help="Cadence operator commands.")
 
 
 @contextmanager
