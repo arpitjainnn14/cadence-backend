@@ -10,6 +10,7 @@ import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth import service
@@ -24,6 +25,10 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+psycopg://postgres:postgres@localhost:5433/subs_test",
 )
+
+if not make_url(TEST_DATABASE_URL).database.endswith("_test"):
+    # reset_schema drops the public schema and `db` truncates every table: never aim that at a real database.
+    raise RuntimeError(f"Refusing to run tests: TEST_DATABASE_URL database must end with '_test' ({TEST_DATABASE_URL!r})")
 
 
 @pytest.fixture(scope="session")
