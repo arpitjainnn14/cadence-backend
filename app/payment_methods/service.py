@@ -12,6 +12,10 @@ class PaymentMethodNotFound(Exception):
     pass
 
 
+class ImageNotFound(Exception):
+    pass
+
+
 class InvalidPaymentMethod(Exception):
     """Business-rule violation (bad image, inconsistent type/network); maps to 422."""
 
@@ -55,7 +59,7 @@ def create_method(
     repo: PaymentMethodRepository, data: PaymentMethodCreate, image: tuple[bytes, str] | None
 ) -> PaymentMethod:
     """Create a payment method, optionally with already-validated card art."""
-    method = repo.add(data.type, data.bank, data.name, data.network)
+    method = repo.add(data.type, data.bank, data.name, data.network, data.color)
     if image:
         repo.set_image(method, *image)
     return method
@@ -81,8 +85,8 @@ def replace_image(repo: PaymentMethodRepository, method_id: uuid.UUID, image: tu
 
 
 def get_image(repo: PaymentMethodRepository, method_id: uuid.UUID) -> tuple[bytes, str]:
-    """(bytes, mime) of the card art, or PaymentMethodNotFound if there is none."""
+    """(bytes, mime) of the card art, or ImageNotFound if there is none."""
     method = get_method(repo, method_id)
     if method.image is None or method.image_mime is None:
-        raise PaymentMethodNotFound
+        raise ImageNotFound
     return method.image, method.image_mime

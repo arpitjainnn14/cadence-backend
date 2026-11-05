@@ -17,6 +17,7 @@ class PaymentMethod(Base):
     bank: Mapped[str | None] = mapped_column(String)
     name: Mapped[str] = mapped_column(String)
     network: Mapped[CardNetwork | None] = mapped_column(pg_enum(CardNetwork, "card_network"))
+    color: Mapped[str | None] = mapped_column(String)
     image: Mapped[bytes | None] = mapped_column(LargeBinary)
     image_mime: Mapped[str | None] = mapped_column(String)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())

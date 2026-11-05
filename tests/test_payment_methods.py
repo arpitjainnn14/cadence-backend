@@ -59,11 +59,12 @@ def test_create_with_image_and_fetch_it(auth):
     assert r.status_code == 201
     body = r.json()
     assert body["has_image"] is True and body["display_name"] == "HDFC Regalia"
-    assert set(body) == {"id", "type", "bank", "name", "network", "display_name", "has_image", "is_active"}
+    assert set(body) == {"id", "type", "bank", "name", "network", "display_name", "color", "has_image", "is_active"}
     img = auth.get(f"{URL}/{body['id']}/image")
     assert img.status_code == 200 and img.content == PNG
     assert img.headers["content-type"] == "image/png"
     assert img.headers["cache-control"] == "private, max-age=86400"
+    assert img.headers["x-content-type-options"] == "nosniff"
 
 
 @pytest.mark.parametrize("data,mime", [(JPEG, "image/jpeg"), (WEBP, "image/webp")])
@@ -86,7 +87,8 @@ def test_oversize_rejected_and_limit_inclusive(auth):
 def test_no_image_is_404(auth):
     pm = create(auth).json()
     assert pm["has_image"] is False
-    assert auth.get(f"{URL}/{pm['id']}/image").status_code == 404
+    r = auth.get(f"{URL}/{pm['id']}/image")
+    assert r.status_code == 404 and r.json() == {"detail": "Image not found"}
 
 
 def test_put_image_replaces(auth):
@@ -109,6 +111,11 @@ def test_put_image_replaces(auth):
         {"name": "x" * 61},
         {"bank": "x" * 41},
         {"type": "bogus"},
+        {"color": "red"},
+        {"color": "#12345"},
+        {"color": "#12345g"},
+        {"color": "123456"},
+        {"name": "   "},
     ],
 )
 def test_create_validation(auth, over):
@@ -140,7 +147,7 @@ def test_patch(auth):
     assert cleared.json()["bank"] is None and cleared.json()["display_name"] == "Regalia Gold"
 
 
-@pytest.mark.parametrize("body", [{"network": None}, {"name": ""}, {"name": None}, {"is_active": None}, {"name": "x" * 61}])
+@pytest.mark.parametrize("body", [{"name": "  "}, {"network": None}, {"name": ""}, {"name": None}, {"is_active": None}, {"name": "x" * 61}])
 def test_patch_validation(auth, body):
     pm = create(auth).json()
     assert auth.patch(f"{URL}/{pm['id']}", json=body, headers=csrf_headers(auth)).status_code == 422
@@ -156,3 +163,37 @@ def test_not_found(auth):
     ):
         assert r.status_code == 404 and r.json() == {"detail": "Payment method not found"}
     assert auth.get(f"{URL}/not-a-uuid/image").status_code == 422
+
+
+def test_color_create_list_patch_clear(auth):
+    pm = create(auth, color="#1A2b3C").json()
+    assert pm["color"] == "#1A2b3C"
+    assert auth.get(URL).json()[0]["color"] == "#1A2b3C"
+    assert create(auth, name="Other").json()["color"] is None
+    h = csrf_headers(auth)
+    r = auth.patch(f"{URL}/{pm['id']}", json={"color": "#000000"}, headers=h)
+    assert r.json()["color"] == "#000000"
+    assert auth.patch(f"{URL}/{pm['id']}", json={"color": "nope"}, headers=h).status_code == 422
+    assert auth.patch(f"{URL}/{pm['id']}", json={"color": None}, headers=h).json()["color"] is None
+
+
+def test_bank_and_name_are_stripped(auth):
+    pm = create(auth, bank="  HDFC ", name="  Regalia  ").json()
+    assert (pm["bank"], pm["name"]) == ("HDFC", "Regalia")
+    h = csrf_headers(auth)
+    r = auth.patch(f"{URL}/{pm['id']}", json={"bank": " SBI ", "name": " Elite "}, headers=h)
+    assert (r.json()["bank"], r.json()["name"]) == ("SBI", "Elite")
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_bank_is_none(auth, blank):
+    assert create(auth, bank=blank).json()["bank"] is None
+    pm = create(auth, name="Two").json()
+    r = auth.patch(f"{URL}/{pm['id']}", json={"bank": blank}, headers=csrf_headers(auth))
+    assert r.json()["bank"] is None
+
+
+def test_patch_network_on_upi_rejected(auth):
+    pm = create(auth, type="upi", bank=None, name="GPay", network=None).json()
+    r = auth.patch(f"{URL}/{pm['id']}", json={"network": "visa"}, headers=csrf_headers(auth))
+    assert r.status_code == 422

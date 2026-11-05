@@ -65,4 +65,10 @@ def get_payment_method_image(method_id: uuid.UUID, repo: Repo) -> Response:
         data, mime = service.get_image(repo, method_id)
     except service.PaymentMethodNotFound:
         raise HTTPException(status_code=404, detail="Payment method not found") from None
-    return Response(content=data, media_type=mime, headers={"Cache-Control": "private, max-age=86400"})
+    except service.ImageNotFound:
+        raise HTTPException(status_code=404, detail="Image not found") from None
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )

@@ -46,10 +46,15 @@ class PaymentMethodRepository:
         return self.db.scalar(stmt)
 
     def add(
-        self, type: PaymentMethodType, bank: str | None, name: str, network: CardNetwork | None
+        self,
+        type: PaymentMethodType,
+        bank: str | None,
+        name: str,
+        network: CardNetwork | None,
+        color: str | None = None,
     ) -> PaymentMethod:
         """Add a payment method. Flushes; the caller's unit of work commits."""
-        method = PaymentMethod(type=type, bank=bank, name=name, network=network)
+        method = PaymentMethod(type=type, bank=bank, name=name, network=network, color=color)
         self.db.add(method)
         self.db.flush()
         return method

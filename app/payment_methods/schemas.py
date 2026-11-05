@@ -1,12 +1,18 @@
 import uuid
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, StringConstraints, model_validator
 
 from app.shared.enums import CardNetwork, PaymentMethodType
 
-Name = Annotated[str, StringConstraints(min_length=1, max_length=60)]
-Bank = Annotated[str, StringConstraints(max_length=40)]
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+Bank = Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)]
+Color = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}$")]
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    """Blank (empty or whitespace-only) bank means no bank."""
+    return value.strip() or None if isinstance(value, str) else value
 
 
 class PaymentMethodCreate(BaseModel):
@@ -14,6 +20,9 @@ class PaymentMethodCreate(BaseModel):
     bank: Bank | None = None
     name: Name
     network: CardNetwork | None = None
+    color: Color | None = None
+
+    _bank_blank = field_validator("bank", mode="before")(_blank_to_none)
 
     @model_validator(mode="after")
     def _network_matches_type(self) -> Self:
@@ -28,6 +37,9 @@ class PaymentMethodUpdate(BaseModel):
     name: Name | None = None
     network: CardNetwork | None = None
     is_active: bool | None = None
+    color: Color | None = None
+
+    _bank_blank = field_validator("bank", mode="before")(_blank_to_none)
 
     @model_validator(mode="after")
     def _required_fields_not_null(self) -> Self:
@@ -46,6 +58,7 @@ class PaymentMethodOut(BaseModel):
     name: str
     network: CardNetwork | None
     display_name: str
+    color: str | None
     has_image: bool
     is_active: bool
 
