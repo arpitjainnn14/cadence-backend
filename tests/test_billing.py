@@ -8,7 +8,7 @@ from app.shared.billing import (
     yearly_amount,
     today_ist,
 )
-from app.shared.enums import BillingCycle, Currency
+from app.shared.enums import BillingCycle
 
 
 def test_add_months_clamps_to_month_end():
