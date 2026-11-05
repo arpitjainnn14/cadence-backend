@@ -72,6 +72,43 @@ def test_create_user_password_mismatch(cli_db):
     assert cli_db.scalars(select(User)).all() == []
 
 
+@pytest.mark.parametrize("email", ["nope", "a@b", "@x.com", "a b@x.com", "a@@x.com"])
+def test_create_user_rejects_bad_email(cli_db, email):
+    result = create_user(email)
+    assert result.exit_code == 1
+    assert "valid email" in result.output
+    assert "Password" not in result.output
+    assert cli_db.scalars(select(User)).all() == []
+
+
+def test_create_user_prompts_outside_a_transaction(cli_db, monkeypatch):
+    import app.cli as cli
+
+    state = {"open": 0, "during_prompt": None}
+    real = cli.unit_of_work
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def tracked():
+        state["open"] += 1
+        try:
+            with real() as s:
+                yield s
+        finally:
+            state["open"] -= 1
+
+    def fake_prompt(*a, **k):
+        state["during_prompt"] = state["open"]
+        return PASSWORD
+
+    monkeypatch.setattr(cli, "unit_of_work", tracked)
+    monkeypatch.setattr(cli.typer, "prompt", fake_prompt)
+    result = runner.invoke(app, ["create-user", "--email", "a@example.com"])
+    assert result.exit_code == 0, result.output
+    assert state["during_prompt"] == 0
+
+
 # --- seed-cards ---
 
 

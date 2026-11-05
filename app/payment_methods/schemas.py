@@ -15,6 +15,10 @@ def _blank_to_none(value: str | None) -> str | None:
     return value.strip() or None if isinstance(value, str) else value
 
 
+def _lowercase(value: str | None) -> str | None:
+    return value.lower() if value is not None else None
+
+
 class PaymentMethodCreate(BaseModel):
     type: PaymentMethodType
     bank: Bank | None = None
@@ -23,6 +27,7 @@ class PaymentMethodCreate(BaseModel):
     color: Color | None = None
 
     _blank = field_validator("bank", "network", "color", mode="before")(_blank_to_none)
+    _lower_color = field_validator("color")(_lowercase)
 
     @model_validator(mode="after")
     def _network_matches_type(self) -> Self:
@@ -40,6 +45,7 @@ class PaymentMethodUpdate(BaseModel):
     color: Color | None = None
 
     _blank = field_validator("bank", "network", "color", mode="before")(_blank_to_none)
+    _lower_color = field_validator("color")(_lowercase)
 
     @model_validator(mode="after")
     def _required_fields_not_null(self) -> Self:

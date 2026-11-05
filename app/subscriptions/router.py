@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.auth.deps import current_user
 from app.payment_methods.deps import get_payment_method_repo
@@ -10,6 +10,7 @@ from app.shared.billing import today_ist
 from app.shared.enums import SubscriptionStatus
 from app.subscriptions import service
 from app.subscriptions.deps import get_subscription_repo
+from app.subscriptions.models import CATEGORIES
 from app.subscriptions.repository import SubscriptionRepository
 from app.subscriptions.schemas import MerchantResolution, SubscriptionIn, SubscriptionOut
 
@@ -35,7 +36,7 @@ def _write(fn, *args):
 
 
 @merchants_router.get("/resolve", response_model=MerchantResolution)
-def resolve_merchant(name: str) -> MerchantResolution:
+def resolve_merchant(name: Annotated[str, Query(max_length=80)]) -> MerchantResolution:
     return service.resolve_merchant(name)
 
 
@@ -44,9 +45,11 @@ def list_subscriptions(
     repo: Repo,
     status: SubscriptionStatus | None = None,
     payment_method_id: uuid.UUID | None = None,
-    category: str | None = None,
+    category: Annotated[str | None, Query(description="One of the known categories")] = None,
     sort: service.SortKey = "name",
 ) -> list[SubscriptionOut]:
+    if category is not None and category not in CATEGORIES:
+        raise HTTPException(status_code=422, detail="Unknown category")
     return service.list_subscriptions(repo, today_ist(), status, payment_method_id, category, sort)
 
 

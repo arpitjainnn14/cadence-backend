@@ -23,8 +23,7 @@ def test_health_db_unavailable_hides_error(client, caplog):
 
     class Broken(HealthRepository):
         def ping(self):
-            self.db.execute(text("SELECT 1"))  # session already used
-            raise RuntimeError("secret connection string")
+            self.db.execute(text("SELECT 1/0"))  # aborts the transaction; only reset() makes get_db's commit safe
 
     client.app.dependency_overrides[get_health_repo] = lambda: Broken(client_db(client))
     try:
@@ -34,7 +33,8 @@ def test_health_db_unavailable_hides_error(client, caplog):
         client.app.dependency_overrides.pop(get_health_repo, None)
     assert resp.status_code == 503
     assert resp.json() == {"status": "unavailable"}
-    assert "secret" not in resp.text
+    client_db(client).execute(text("SELECT 1"))  # fails with InFailedSqlTransaction unless reset() rolled back
+    assert "division by zero" not in resp.text
     assert "db health check failed" in caplog.text
 
 
@@ -42,3 +42,23 @@ def client_db(client):
     from app.core.db import get_db
 
     return client.app.dependency_overrides[get_db]()
+
+
+def test_health_db_503_even_if_reset_fails(client):
+    from sqlalchemy import text
+
+    from app.core.health import HealthRepository, get_health_repo
+
+    class Broken(HealthRepository):
+        def ping(self):
+            raise RuntimeError("down")
+
+        def reset(self):
+            raise RuntimeError("rollback failed")
+
+    client.app.dependency_overrides[get_health_repo] = lambda: Broken(client_db(client))
+    try:
+        resp = client.get("/api/health/db")
+    finally:
+        client.app.dependency_overrides.pop(get_health_repo, None)
+    assert resp.status_code == 503
