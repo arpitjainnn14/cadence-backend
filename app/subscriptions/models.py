@@ -6,7 +6,7 @@ from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Numeric, Str
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.payment_methods.models import _enum
+from app.shared.db_types import pg_enum
 from app.shared.enums import BillingCycle, Currency, SubscriptionStatus
 
 CATEGORIES = [
@@ -30,8 +30,8 @@ class Subscription(Base):
     merchant_name: Mapped[str] = mapped_column(String)
     merchant_domain: Mapped[str | None] = mapped_column(String)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
-    currency: Mapped[Currency] = mapped_column(_enum(Currency, "currency"))
-    billing_cycle: Mapped[BillingCycle] = mapped_column(_enum(BillingCycle, "billing_cycle"))
+    currency: Mapped[Currency] = mapped_column(pg_enum(Currency, "currency"))
+    billing_cycle: Mapped[BillingCycle] = mapped_column(pg_enum(BillingCycle, "billing_cycle"))
     start_date: Mapped[date] = mapped_column(Date)
     payment_method_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("payment_methods.id", ondelete="SET NULL"), index=True
@@ -39,7 +39,7 @@ class Subscription(Base):
     category: Mapped[str] = mapped_column(String, default="Other", server_default="Other")
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[SubscriptionStatus] = mapped_column(
-        _enum(SubscriptionStatus, "subscription_status"),
+        pg_enum(SubscriptionStatus, "subscription_status"),
         default=SubscriptionStatus.active,
         server_default=SubscriptionStatus.active.value,
     )

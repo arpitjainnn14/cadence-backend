@@ -54,5 +54,6 @@ def test_strong_secrets_allowed_when_cookie_secure():
     Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32)
 
 
-def test_dev_secret_allowed_when_cookie_insecure():
-    assert Settings(cookie_secure=False).jwt_secret == "dev-insecure"
+def test_dev_secret_allowed_when_cookie_insecure(monkeypatch):
+    monkeypatch.delenv("JWT_SECRET")  # conftest sets a long test secret; check the built-in default
+    assert Settings(_env_file=None, cookie_secure=False).jwt_secret == "dev-insecure"

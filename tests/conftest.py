@@ -2,6 +2,7 @@ import os
 
 # Must be set before app modules import: Settings fails closed on dev secrets when cookie_secure=True.
 os.environ.setdefault("COOKIE_SECURE", "false")
+os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-0123456789abcdef")  # >= 32 bytes: no HMAC length warnings
 
 import pytest
 from alembic import command

@@ -12,6 +12,7 @@ def alembic_config(url: str) -> Config:
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
     cfg.attributes["url"] = url
+    cfg.attributes["configure_logger"] = False  # keep Alembic from resetting logging during tests
     return cfg
 
 
