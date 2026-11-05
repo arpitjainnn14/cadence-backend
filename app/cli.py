@@ -1,4 +1,7 @@
-"""Operator CLI: `uv run python -m app.cli create-user --email E` and `... seed-cards [--file F]`."""
+"""Operator CLI: `uv run python -m app.cli create-user --email E` and `... seed-cards [--file F]`.
+
+Settings fail closed on weak secrets, so local runs need `COOKIE_SECURE=false` (or real secrets) in the environment.
+"""
 
 import json
 from collections.abc import Iterator
@@ -37,23 +40,20 @@ def unit_of_work() -> Iterator[Session]:
 
 
 @app.command("create-user")
-def create_user(
-    email: Annotated[str, typer.Option(help="Login email for the (single) user.")],
-    password: Annotated[
-        str, typer.Option(prompt=True, hide_input=True, confirmation_prompt=True, help="Prompted, never passed inline.")
-    ],
-) -> None:
-    """Create the one and only user. Fails if a user already exists."""
-    if len(password) < MIN_PASSWORD_LENGTH:
-        typer.echo(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", err=True)
-        raise typer.Exit(1)
+def create_user(email: Annotated[str, typer.Option(help="Login email for the (single) user.")]) -> None:
+    """Create the one and only user. Fails if a user already exists. The password is always prompted."""
     with unit_of_work() as session:
         users = UserRepository(session)
         if users.any_exists():
             typer.echo("A user already exists; this app is single-user.", err=True)
             raise typer.Exit(1)
-        users.create(email, hash_password(password))
-    typer.echo(f"Created user {email.strip().lower()}.")
+        password = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
+        if len(password) < MIN_PASSWORD_LENGTH:
+            typer.echo(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", err=True)
+            raise typer.Exit(1)
+        user = users.create(email, hash_password(password))
+        created_email = user.email
+    typer.echo(f"Created user {created_email}.")
 
 
 @app.command("seed-cards")

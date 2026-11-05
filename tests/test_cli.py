@@ -6,6 +6,7 @@ from sqlalchemy import select
 from typer.testing import CliRunner
 
 from app.auth.models import User
+from app.auth.security import verify_password
 from app.cli import app
 from app.insights.repository import SettingsRepository
 from app.payment_methods.models import PaymentMethod
@@ -28,30 +29,46 @@ def create_user(email="arpit@example.com", password=PASSWORD, confirm=None):
     return runner.invoke(app, ["create-user", "--email", email], input=f"{password}\n{confirm or password}\n")
 
 
+def test_create_user_has_no_password_option(cli_db):
+    result = runner.invoke(app, ["create-user", "--email", "a@example.com", "--password", PASSWORD])
+    assert result.exit_code == 2
+    assert cli_db.scalars(select(User)).all() == []
+
+
 # --- create-user ---
 
 
 def test_create_user_once(cli_db):
     first = create_user()
     assert first.exit_code == 0, first.output
-    second = create_user("other@example.com")
-    assert second.exit_code != 0
+    assert "Created user arpit@example.com." in first.output
+    second = runner.invoke(app, ["create-user", "--email", "other@example.com"])  # no input: must not prompt
+    assert second.exit_code == 1
     assert "already exists" in second.output
+    assert "Password" not in second.output
     users = cli_db.scalars(select(User)).all()
     assert [u.email for u in users] == ["arpit@example.com"]
     assert users[0].password_hash != PASSWORD
+    assert verify_password(PASSWORD, users[0].password_hash)
+
+
+def test_create_user_prints_stored_email(cli_db):
+    result = create_user("  Arpit@Example.COM ")
+    assert result.exit_code == 0, result.output
+    [user] = cli_db.scalars(select(User)).all()
+    assert f"Created user {user.email}." in result.output
 
 
 def test_create_user_rejects_short_password(cli_db):
     result = create_user(password="short-pass")  # 10 chars
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "at least 12" in result.output
     assert cli_db.scalars(select(User)).all() == []
 
 
 def test_create_user_password_mismatch(cli_db):
     result = create_user(confirm="a-different-password")
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert cli_db.scalars(select(User)).all() == []
 
 
