@@ -68,3 +68,12 @@ def test_to_inr():
 def test_today_ist_crosses_midnight():
     # 19:00 UTC is 00:30 IST the next day
     assert today_ist(datetime(2026, 11, 4, 19, 0, tzinfo=UTC)) == date(2026, 11, 5)
+
+
+def test_monthly_inr_unrounded_keeps_precision():
+    from app.shared.billing import monthly_inr_unrounded
+
+    got = monthly_inr_unrounded(Decimal("1499"), Currency.INR, BillingCycle.yearly, Decimal("88"))
+    assert got != Decimal("124.92") and abs(got - Decimal("124.9166667")) < Decimal("0.000001")
+    usd = monthly_inr_unrounded(Decimal("20"), Currency.USD, BillingCycle.monthly, Decimal("88"))
+    assert usd == Decimal("1760")

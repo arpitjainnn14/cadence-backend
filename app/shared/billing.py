@@ -56,3 +56,14 @@ def to_inr(amount: Decimal, currency: Currency, usd_rate: Decimal) -> Decimal:
 def today_ist(now: datetime | None = None) -> date:
     """Current calendar date in Asia/Kolkata (`now` must be tz-aware if given)."""
     return (now or datetime.now(IST)).astimezone(IST).date()
+
+
+def monthly_inr_unrounded(amount: Decimal, currency: Currency, cycle: BillingCycle, usd_rate: Decimal) -> Decimal:
+    """Per-month cost in INR with no rounding, so sums can be rounded once at the end."""
+    inr = amount * usd_rate if currency == Currency.USD else amount
+    return inr / CYCLE_MONTHS[cycle]
+
+
+def round_money(value: Decimal) -> Decimal:
+    """Round to 2 places, half up."""
+    return _round(value)
