@@ -201,8 +201,8 @@ def test_not_found(auth):
 
 def test_color_create_list_patch_clear(auth):
     pm = create(auth, color="#1A2b3C").json()
-    assert pm["color"] == "#1A2b3C"
-    assert auth.get(URL).json()[0]["color"] == "#1A2b3C"
+    assert pm["color"] == "#1a2b3c"
+    assert auth.get(URL).json()[0]["color"] == "#1a2b3c"
     assert create(auth, name="Other").json()["color"] is None
     h = csrf_headers(auth)
     r = auth.patch(f"{URL}/{pm['id']}", json={"color": "#000000"}, headers=h)
@@ -231,3 +231,10 @@ def test_patch_network_on_upi_rejected(auth):
     pm = create(auth, type="upi", bank=None, name="GPay", network=None).json()
     r = auth.patch(f"{URL}/{pm['id']}", json={"network": "visa"}, headers=csrf_headers(auth))
     assert r.status_code == 422
+
+
+def test_color_stored_lowercase_on_create_and_patch(auth):
+    pm = create(auth, type="other", bank=None, name="Cash", network=None, color="#1A2B3C").json()
+    assert pm["color"] == "#1a2b3c"
+    r = auth.patch(f"{URL}/{pm['id']}", json={"color": "#ABCDEF"}, headers=csrf_headers(auth))
+    assert r.json()["color"] == "#abcdef"

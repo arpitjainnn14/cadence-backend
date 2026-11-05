@@ -68,7 +68,59 @@ def test_non_api_paths_not_checked(client):
     assert client.post("/other").status_code == 404
 
 
+@pytest.mark.parametrize("path", ["/api/auth/login-x", "/api/auth/login/", "/api/internal", "/api/internalx"])
+def test_csrf_lookalike_paths_not_exempt(client, user, path):
+    assert client.post(path).status_code == 403
+
+
+def test_internal_without_csrf_header_reaches_secret_check(client, user):
+    r = client.post("/api/internal/run-reminders")
+    assert r.status_code == 403 and r.json() == {"detail": "Forbidden"}  # from the secret dependency, not CSRF
+
+
 # --- rate limiting ---
+
+
+def _req(forwarded, peer="9.9.9.9"):
+    class Req:
+        headers = {"x-forwarded-for": forwarded} if forwarded is not None else {}
+        client = type("C", (), {"host": peer})() if peer else None
+
+    return Req()
+
+
+@pytest.mark.parametrize("forwarded", ["garbage", "", "  ,1.2.3.4", "999.1.1.1", "<script>"])
+def test_client_ip_invalid_forwarded_falls_back_to_peer(forwarded):
+    assert ratelimit.client_ip(_req(forwarded)) == "9.9.9.9"
+
+
+def test_client_ip_keeps_valid_ipv6_normalised():
+    assert ratelimit.client_ip(_req("2001:DB8:0:0:0:0:0:1, 1.1.1.1")) == "2001:db8::1"
+
+
+def test_client_ip_unknown_without_peer():
+    assert ratelimit.client_ip(_req("nope", peer=None)) == "unknown"
+
+
+def test_login_locks_email_before_checking_lockout(client, user, monkeypatch):
+    calls = []
+    real_lock, real_locked = LoginAttemptRepository.lock_for, ratelimit.is_locked
+    monkeypatch.setattr(LoginAttemptRepository, "lock_for", lambda self, email: (calls.append(("lock", email)), real_lock(self, email))[1])
+    monkeypatch.setattr(ratelimit, "is_locked", lambda *a, **k: (calls.append(("is_locked",)), real_locked(*a, **k))[1])
+    login(client, email=EMAIL.upper())
+    assert calls[0] == ("lock", EMAIL.upper()) and calls[1] == ("is_locked",)
+
+
+def test_lock_for_runs_advisory_lock(db):
+    LoginAttemptRepository(db).lock_for(" A@X.com ")  # executes without error inside a transaction
+
+
+def test_attempts_use_the_service_clock(client, user, clock):
+    clock["now"] -= timedelta(minutes=16)
+    for _ in range(5):
+        login(client, password="wrong")  # recorded "16 minutes ago"
+    clock["now"] += timedelta(minutes=16)
+    assert login(client).status_code == 200  # they no longer count
 
 
 def test_client_ip_prefers_first_forwarded_entry(client, user):
@@ -198,8 +250,8 @@ def test_is_locked_policy(db):
     repo = LoginAttemptRepository(db)
     now = datetime(2030, 1, 1, 12, tzinfo=UTC)
     for _ in range(4):
-        ratelimit.record_attempt(repo, "a@x.com", "1.1.1.1", False)
+        ratelimit.record_attempt(repo, "a@x.com", "1.1.1.1", False, at=datetime.now(UTC))
     assert not ratelimit.is_locked(repo, "a@x.com", "1.1.1.1", now=datetime.now(UTC))
-    ratelimit.record_attempt(repo, "a@x.com", "1.1.1.1", False)
+    ratelimit.record_attempt(repo, "a@x.com", "1.1.1.1", False, at=datetime.now(UTC))
     assert ratelimit.is_locked(repo, "A@x.com", "9.9.9.9", now=datetime.now(UTC))
     assert not ratelimit.is_locked(repo, "a@x.com", "1.1.1.1", now=now + timedelta(days=3650))

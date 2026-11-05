@@ -1,3 +1,4 @@
+import ipaddress
 from datetime import datetime, timedelta
 
 from fastapi import Request
@@ -9,7 +10,7 @@ WINDOW = timedelta(minutes=15)
 
 
 def client_ip(request: Request) -> str:
-    """First X-Forwarded-For entry, else the socket peer.
+    """First valid X-Forwarded-For entry, else the socket peer, else "unknown" (max 45 chars).
 
     In production the request comes through Vercel -> Cloud Run, so the real client is the first
     X-Forwarded-For entry, but a client can send its own header and spoof it. The per-IP limit is
@@ -17,8 +18,11 @@ def client_ip(request: Request) -> str:
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+        try:
+            return str(ipaddress.ip_address(forwarded.split(",")[0].strip()))[:45]
+        except ValueError:
+            pass  # garbage or empty: fall back to the peer
+    return (request.client.host if request.client else "unknown")[:45]
 
 
 def is_locked(attempts: LoginAttemptRepository, email: str, ip: str, now: datetime) -> bool:
@@ -30,5 +34,6 @@ def is_locked(attempts: LoginAttemptRepository, email: str, ip: str, now: dateti
     )
 
 
-def record_attempt(attempts: LoginAttemptRepository, email: str, ip: str, success: bool) -> None:
-    attempts.add(email, ip, success)
+def record_attempt(attempts: LoginAttemptRepository, email: str, ip: str, success: bool, at: datetime) -> None:
+    """Record an attempt stamped with the same clock `is_locked` compares against."""
+    attempts.add(email, ip, success, at=at)

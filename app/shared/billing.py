@@ -53,7 +53,9 @@ def yearly_amount(amount: Decimal, cycle: BillingCycle) -> Decimal:
 
 def today_ist(now: datetime | None = None) -> date:
     """Current calendar date in Asia/Kolkata (`now` must be tz-aware if given)."""
-    return (now or datetime.now(IST)).astimezone(IST).date()
+    if now is not None and now.tzinfo is None:
+        raise ValueError("today_ist needs a timezone-aware datetime")
+    return (now if now is not None else datetime.now(IST)).astimezone(IST).date()
 
 
 def monthly_unrounded(amount: Decimal, cycle: BillingCycle) -> Decimal:

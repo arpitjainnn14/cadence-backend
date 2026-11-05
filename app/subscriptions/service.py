@@ -116,7 +116,7 @@ def list_subscriptions(
     if sort == "cost":
         items.sort(key=lambda s: (s.currency != Currency.INR, -s.yearly_amount, s.merchant_name.lower(), str(s.id)))
     elif sort == "renewal":
-        items.sort(key=lambda s: (s.next_renewal, s.merchant_name.lower()))
+        items.sort(key=lambda s: (s.next_renewal, s.merchant_name.lower(), str(s.id)))
     else:
-        items.sort(key=lambda s: s.merchant_name.lower())
+        items.sort(key=lambda s: (s.merchant_name.lower(), str(s.id)))
     return items

@@ -79,3 +79,13 @@ def test_monthly_unrounded_keeps_precision():
     got = monthly_unrounded(Decimal("1499"), BillingCycle.yearly)
     assert got != Decimal("124.92") and abs(got - Decimal("124.9166667")) < Decimal("0.000001")
     assert monthly_unrounded(Decimal("20"), BillingCycle.monthly) == Decimal("20")
+
+
+def test_today_ist_rejects_naive_datetime():
+    import pytest as _pytest
+    from datetime import datetime as _dt
+
+    from app.shared.billing import today_ist as _today
+
+    with _pytest.raises(ValueError):
+        _today(_dt(2026, 1, 1, 12, 0))

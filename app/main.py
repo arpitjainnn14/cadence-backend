@@ -31,7 +31,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             repo.ping()
         except Exception:
             logger.exception("db health check failed")
-            repo.reset()  # a failed query leaves the transaction aborted; don't let get_db's commit fail
+            try:
+                repo.reset()  # a failed query leaves the transaction aborted; don't let get_db's commit fail
+            except Exception:
+                logger.exception("db health reset failed")
             return JSONResponse({"status": "unavailable"}, status_code=503)
         return JSONResponse({"status": "ok"})
 

@@ -75,7 +75,38 @@ def test_resolve_endpoint(auth):
     assert auth.get("/api/merchants/resolve", params={"name": "Nope"}).json() == {"domain": None, "logo_url": None}
 
 
+def test_resolve_name_too_long_422(auth):
+    assert auth.get("/api/merchants/resolve", params={"name": "x" * 81}).status_code == 422
+    assert auth.get("/api/merchants/resolve", params={"name": "x" * 80}).status_code == 200
+
+
+def test_unknown_category_filter_422(auth):
+    assert auth.get(URL, params={"category": "Bogus"}).status_code == 422
+    assert auth.get(URL, params={"category": "News"}).status_code == 200
+
+
+@pytest.mark.parametrize("sort", ["name", "renewal", "cost"])
+def test_sort_ties_broken_by_id(auth, sort):
+    for _ in range(4):
+        assert create(auth, merchant_name="Same").status_code == 201
+    ids = [s["id"] for s in auth.get(URL, params={"sort": sort}).json()]
+    assert ids == sorted(ids)
+
+
 # --- repository ---
+
+
+def test_amount_check_constraint_rejects_zero(db):
+    from sqlalchemy.exc import IntegrityError
+
+    repo = SubscriptionRepository(db)
+    fields = dict(
+        merchant_name="Zero", merchant_domain=None, amount=Decimal("0"), currency=Currency.INR,
+        billing_cycle=BillingCycle.monthly, start_date=date(2026, 1, 1), payment_method_id=None,
+        category="Other", notes=None, status=SubscriptionStatus.active,
+    )
+    with pytest.raises(IntegrityError):
+        repo.add(**fields)
 
 
 def test_repo_crud_and_filters(db):

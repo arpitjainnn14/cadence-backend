@@ -32,10 +32,12 @@ def login(
     # Failures return a response instead of raising: get_db rolls back on exceptions, and the
     # recorded attempt must be committed or the lockout would never accumulate.
     ip = ratelimit.client_ip(request)
-    if ratelimit.is_locked(attempts, body.email, ip, service.now()):
+    attempts.lock_for(body.email)  # serialise concurrent logins per email until this transaction ends
+    now = service.now()
+    if ratelimit.is_locked(attempts, body.email, ip, now):
         return JSONResponse(status_code=429, content={"detail": "Too many attempts. Try again later."})
     user = service.authenticate(users, body.email, body.password)
-    ratelimit.record_attempt(attempts, body.email, ip, success=user is not None)
+    ratelimit.record_attempt(attempts, body.email, ip, success=user is not None, at=now)
     if user is None:
         return JSONResponse(status_code=401, content={"detail": "Invalid email or password"})
     access, refresh = service.issue_session(tokens, user)

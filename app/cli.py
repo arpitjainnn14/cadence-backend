@@ -4,6 +4,7 @@ Settings fail closed on weak secrets, so local runs need `COOKIE_SECURE=false` (
 """
 
 import json
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,6 +20,7 @@ from app.payment_methods.repository import PaymentMethodRepository
 from app.shared.enums import CardNetwork, PaymentMethodType
 
 MIN_PASSWORD_LENGTH = 8
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 DEFAULT_CARDS_FILE = Path(__file__).resolve().parent.parent / "seed" / "cards.json"
 UPI_APPS = ("GPay", "PhonePe", "Paytm")
 
@@ -40,17 +42,20 @@ def unit_of_work() -> Iterator[Session]:
 @app.command("create-user")
 def create_user(email: Annotated[str, typer.Option(help="Login email for the (single) user.")]) -> None:
     """Create the one and only user. Fails if a user already exists. The password is always prompted."""
+    if not EMAIL_PATTERN.match(email.strip()):
+        typer.echo("Enter a valid email address (local@domain.tld).", err=True)
+        raise typer.Exit(1)
+    with unit_of_work() as session:  # short unit of work: only the pre-check, so no transaction is open while prompting
+        exists = UserRepository(session).any_exists()
+    if exists:
+        typer.echo("A user already exists; this app is single-user.", err=True)
+        raise typer.Exit(1)
+    password = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
+    if len(password) < MIN_PASSWORD_LENGTH:
+        typer.echo(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", err=True)
+        raise typer.Exit(1)
     with unit_of_work() as session:
-        users = UserRepository(session)
-        if users.any_exists():
-            typer.echo("A user already exists; this app is single-user.", err=True)
-            raise typer.Exit(1)
-        password = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
-        if len(password) < MIN_PASSWORD_LENGTH:
-            typer.echo(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", err=True)
-            raise typer.Exit(1)
-        user = users.create(email, hash_password(password))
-        created_email = user.email
+        created_email = UserRepository(session).create(email, hash_password(password)).email
     typer.echo(f"Created user {created_email}.")
 
 

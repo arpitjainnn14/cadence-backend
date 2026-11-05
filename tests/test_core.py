@@ -149,3 +149,12 @@ def test_engine_options_default_keeps_pool_settings():
     assert opts["pool_pre_ping"] is True
     assert opts["pool_recycle"] == 300
     assert opts["connect_args"] == {"prepare_threshold": None}
+
+
+def test_mismatched_vapid_pair_rejected_when_cookie_secure(vapid_keys):
+    key = ec.generate_private_key(ec.SECP256R1())
+    other_public = _b64url(
+        key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        Settings(**STRONG, **{**vapid_keys, "vapid_public_key": other_public})
