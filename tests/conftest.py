@@ -1,12 +1,15 @@
 import os
 
+# Must be set before app modules import: Settings fails closed on dev secrets when cookie_secure=True.
+os.environ.setdefault("COOKIE_SECURE", "false")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from app.config import Settings, get_settings
-from app.db import Base, get_db
+from app.core.config import Settings, get_settings
+from app.core.db import Base, get_db
 from app.main import create_app
 
 TEST_DATABASE_URL = os.environ.get(
@@ -20,6 +23,7 @@ def engine():
     import app.models  # noqa: F401  (registers every feature's tables on Base.metadata)
 
     eng = create_engine(TEST_DATABASE_URL)
+    Base.metadata.drop_all(eng)
     Base.metadata.create_all(eng)
     yield eng
     eng.dispose()

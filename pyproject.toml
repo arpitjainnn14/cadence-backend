@@ -1,8 +1,7 @@
 [project]
-name = "backend"
+name = "subs-backend"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "FastAPI + Postgres backend for Subs, a single-user subscription tracker"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.1",
@@ -26,4 +25,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Starlette TestClient warns that using httpx is deprecated in favour of httpx2 (upstream: Starlette/FastAPI testclient);
+# drop this filter once the project moves to httpx2.
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
