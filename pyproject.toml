@@ -1,0 +1,31 @@
+[project]
+name = "subs-backend"
+version = "0.1.0"
+description = "FastAPI + Postgres backend for Cadence, a single-user subscription tracker"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.162.0",
+    "psycopg[binary]>=3.3.8",
+    "pwdlib[argon2]>=0.3.1",
+    "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
+    "python-multipart>=0.0.33",
+    "pywebpush>=2.5.0",
+    "sqlalchemy>=2.1.8",
+    "typer>=0.27.3",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pillow>=13.0.0",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Starlette TestClient warns that using httpx is deprecated in favour of httpx2 (upstream: Starlette/FastAPI testclient);
+# drop this filter once the project moves to httpx2.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
