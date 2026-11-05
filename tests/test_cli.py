@@ -14,7 +14,7 @@ from app.payment_methods.repository import PaymentMethodRepository
 from app.shared.enums import CardNetwork, PaymentMethodType
 from tests.conftest import use_test_sessions
 
-PASSWORD = "a-long-enough-pass"
+PASSWORD = "long-enough"
 runner = CliRunner()
 
 
@@ -60,9 +60,9 @@ def test_create_user_prints_stored_email(cli_db):
 
 
 def test_create_user_rejects_short_password(cli_db):
-    result = create_user(password="short-pass")  # 10 chars
+    result = create_user(password="short-7")  # 7 chars
     assert result.exit_code == 1
-    assert "at least 12" in result.output
+    assert "at least 8" in result.output
     assert cli_db.scalars(select(User)).all() == []
 
 
@@ -117,17 +117,17 @@ def test_seed_custom_file(cli_db, tmp_path: Path):
     assert card.name == "Test" and card.image == b"webp-bytes"
 
 
-def test_seed_sets_usd_rate(cli_db):
+def test_seed_scapia_is_axis(cli_db):
     runner.invoke(app, ["seed-cards"])
-    assert SettingsRepository(cli_db).get("usd_inr_rate") == "88"
+    scapia = [c for c in cards(cli_db) if c.name == "Scapia"]
+    assert {c.network for c in scapia} == {CardNetwork.mastercard, CardNetwork.rupay}
+    assert {c.bank for c in scapia} == {"Axis"} and {c.display_name for c in scapia} == {"Axis Scapia"}
+    assert all(c.image for c in scapia)
 
 
-def test_seed_never_overwrites_usd_rate(cli_db):
-    SettingsRepository(cli_db).set("usd_inr_rate", "91.5")
-    cli_db.commit()
+def test_seed_does_not_write_settings(cli_db):
     runner.invoke(app, ["seed-cards"])
-    cli_db.expire_all()
-    assert SettingsRepository(cli_db).get("usd_inr_rate") == "91.5"
+    assert SettingsRepository(cli_db).get("usd_inr_rate") is None
 
 
 # --- repositories ---

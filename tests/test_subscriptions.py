@@ -4,7 +4,6 @@ from decimal import Decimal
 
 import pytest
 
-from app.insights.repository import SettingsRepository
 from app.payment_methods.repository import PaymentMethodRepository
 from app.shared.enums import BillingCycle, Currency, PaymentMethodType, SubscriptionStatus
 from app.subscriptions import merchants
@@ -118,7 +117,7 @@ def test_create_netflix_fills_domain_and_logo(auth):
     assert out["merchant_domain"] == "netflix.com"
     assert "netflix.com" in out["logo_url"]
     assert out["amount_inr"] == "649.00"
-    assert out["yearly_inr"] == "7788.00"
+    assert out["yearly_inr"] == "7788.00" and out["yearly_amount"] == "7788.00"
     assert out["cancelled_at"] is None and out["created_at"]
     assert date.fromisoformat(out["next_renewal"]) >= date(2026, 1, 15)
 
@@ -145,6 +144,17 @@ def test_sort_cost_orders_by_yearly(auth):
     create(auth, merchant_name="Monthly", amount="649")
     names = [s["merchant_name"] for s in auth.get(URL, params={"sort": "cost"}).json()]
     assert names == ["Monthly", "Yearly"]
+
+
+def test_sort_cost_inr_first_then_usd_each_by_yearly_desc_then_name(auth):
+    create(auth, merchant_name="Small INR", amount="10")  # 120/yr
+    create(auth, merchant_name="Big USD", amount="500", currency="USD")  # 6000/yr: more than any INR, still last
+    create(auth, merchant_name="Big INR", amount="100")  # 1200/yr
+    create(auth, merchant_name="Small USD", amount="5", currency="USD")  # 60/yr
+    create(auth, merchant_name="b tie", amount="10")  # ties with Small INR; name decides
+    create(auth, merchant_name="a tie", amount="10")
+    names = [s["merchant_name"] for s in auth.get(URL, params={"sort": "cost"}).json()]
+    assert names == ["Big INR", "a tie", "b tie", "Small INR", "Big USD", "Small USD"]
 
 
 def test_sort_name_and_renewal(auth):
@@ -194,13 +204,19 @@ def test_inactive_payment_method_allowed(auth):
     assert create(auth, payment_method_id=pm["id"]).status_code == 201
 
 
-def test_usd_amount_inr_uses_rate(auth, db):
+def test_usd_sub_has_no_inr_conversion(auth):
     out = create(auth, merchant_name="Notion", amount="10", currency="USD").json()
-    assert out["amount_inr"] == "880.00"  # default rate 88
-    SettingsRepository(db).set("usd_inr_rate", "90.5")
-    out = auth.get(f"{URL}/{out['id']}").json()
-    assert Decimal(out["amount_inr"]) == Decimal("10") * Decimal("90.5")
-    assert out["yearly_inr"] == "10860.00"
+    assert (out["amount"], out["yearly_amount"]) == ("10.00", "120.00")
+    assert out["amount_inr"] is None and out["yearly_inr"] is None
+    got = auth.get(f"{URL}/{out['id']}").json()
+    assert got["amount_inr"] is None and got["yearly_inr"] is None and got["yearly_amount"] == "120.00"
+    listed = auth.get(URL).json()[0]
+    assert listed["amount_inr"] is None and listed["yearly_amount"] == "120.00"
+
+
+def test_yearly_amount_is_own_currency(auth):
+    out = create(auth, merchant_name="Q", amount="10.01", currency="USD", billing_cycle="quarterly").json()
+    assert out["yearly_amount"] == "40.04" and out["yearly_inr"] is None
 
 
 def test_get_put_delete_and_404(auth):

@@ -3,14 +3,12 @@ from decimal import Decimal
 
 import pytest
 
-from app.insights.repository import SettingsRepository
-from app.insights.service import USD_RATE_KEY, get_usd_rate
 from app.payment_methods.repository import PaymentMethodRepository
 from app.shared.billing import CYCLE_MONTHS, today_ist
 from app.shared.enums import BillingCycle, Currency, PaymentMethodType
 from app.subscriptions.repository import SubscriptionRepository
 from app.subscriptions.merchants import resolve_domain
-from tests.conftest import csrf_headers, login
+from tests.conftest import login
 
 M, Q, Y = BillingCycle.monthly, BillingCycle.quarterly, BillingCycle.yearly
 INR, USD = Currency.INR, Currency.USD
@@ -49,10 +47,8 @@ def seed(db, rows=SAMPLE):
     return [add(db, n, a, c, cy, cat) for n, a, c, cy, cat in rows]
 
 
-def expected_monthly(rows=SAMPLE, rate=Decimal("88")):
-    total = sum(
-        (Decimal(a) * (rate if c == USD else 1) / CYCLE_MONTHS[cy] for _, a, c, cy, _ in rows), Decimal(0)
-    )
+def expected_monthly(rows=SAMPLE, currency=INR):
+    total = sum((Decimal(a) / CYCLE_MONTHS[cy] for _, a, c, cy, _ in rows if c == currency), Decimal(0))
     return total.quantize(Decimal("0.01"))
 
 
@@ -62,38 +58,17 @@ def get(client, url):
     return r.json()
 
 
-# --- settings ---
+# --- auth / removed settings ---
 
 
-def test_settings_default_and_put(auth):
-    assert get(auth, "/api/settings") == {"usd_inr_rate": "88.00"}
-    r = auth.put("/api/settings", json={"usd_inr_rate": "83.5"}, headers=csrf_headers(auth))
-    assert r.status_code == 200 and r.json() == {"usd_inr_rate": "83.50"}
-    assert get(auth, "/api/settings") == {"usd_inr_rate": "83.50"}
-    r = auth.put("/api/settings", json={"usd_inr_rate": 84.1234}, headers=csrf_headers(auth))
-    assert r.json() == {"usd_inr_rate": "84.1234"}
-
-
-@pytest.mark.parametrize("bad", ["0", "-1", "abc", "NaN", "Infinity", "10000.01", "1.23456", None, ""])
-def test_settings_rejects_invalid_rate(auth, bad):
-    r = auth.put("/api/settings", json={"usd_inr_rate": bad}, headers=csrf_headers(auth))
-    assert r.status_code == 422
-    assert get(auth, "/api/settings") == {"usd_inr_rate": "88.00"}
-
-
-def test_settings_requires_auth_and_csrf(client, user):
-    assert client.get("/api/settings").status_code == 401
+def test_requires_auth(client, user):
     assert client.get("/api/summary").status_code == 401
     assert client.get("/api/insights").status_code == 401
-    assert login(client).status_code == 200
-    assert client.put("/api/settings", json={"usd_inr_rate": "90"}).status_code == 403
 
 
-@pytest.mark.parametrize("stored", ["garbage", "NaN", "Infinity", "-5", "0", "99999999", ""])
-def test_get_usd_rate_falls_back_when_stored_value_malformed(db, stored):
-    repo = SettingsRepository(db)
-    repo.set(USD_RATE_KEY, stored)
-    assert get_usd_rate(repo) == Decimal("88")
+def test_settings_endpoints_removed(auth):
+    assert auth.get("/api/settings").status_code == 404
+    assert auth.put("/api/settings", json={"usd_inr_rate": "90"}).status_code in (403, 404)
 
 
 # --- summary ---
@@ -102,16 +77,10 @@ def test_get_usd_rate_falls_back_when_stored_value_malformed(db, stored):
 def test_summary_sample_totals(auth, db):
     seed(db)
     s = get(auth, "/api/summary")
-    monthly = expected_monthly()
-    assert monthly == Decimal("5455.25")
-    assert s["monthly"] == "5455.25"
-    assert s["approx"] is True
-    # Rounded once from the unrounded sum, not 6x / 12x the rounded monthly.
-    exact = sum(
-        (Decimal(a) * (88 if c == USD else 1) / CYCLE_MONTHS[cy] for _, a, c, cy, _ in SAMPLE), Decimal(0)
-    )
-    assert s["half_yearly"] == str((exact * 6).quantize(Decimal("0.01")))
-    assert s["yearly"] == str((exact * 12).quantize(Decimal("0.01")))
+    assert expected_monthly() == Decimal("2815.25")
+    assert (s["monthly"], s["half_yearly"], s["yearly"]) == ("2815.25", "16891.50", "33783.00")
+    assert s["usd"] == {"monthly": "30.00", "half_yearly": "180.00", "yearly": "360.00"}
+    assert "approx" not in s
 
 
 def test_summary_quarterly_sub_is_prorated_from_unrounded_monthly(auth, db):
@@ -120,14 +89,22 @@ def test_summary_quarterly_sub_is_prorated_from_unrounded_monthly(auth, db):
     assert (s["monthly"], s["half_yearly"], s["yearly"]) == ("33.33", "200.00", "400.00")
 
 
-def test_summary_no_usd_not_approx(auth, db):
+def test_summary_usd_null_without_usd_subs(auth, db):
     seed(db, [r for r in SAMPLE if r[2] == INR])
-    assert get(auth, "/api/summary")["approx"] is False
+    s = get(auth, "/api/summary")
+    assert s["usd"] is None and s["monthly"] == "2815.25"
+
+
+def test_summary_usd_only(auth, db):
+    add(db, "Notion", "10", currency=USD)
+    s = get(auth, "/api/summary")
+    assert (s["monthly"], s["half_yearly"], s["yearly"]) == ("0.00", "0.00", "0.00")
+    assert s["usd"] == {"monthly": "10.00", "half_yearly": "60.00", "yearly": "120.00"}
 
 
 def test_summary_empty(auth):
     assert get(auth, "/api/summary") == {
-        "monthly": "0.00", "half_yearly": "0.00", "yearly": "0.00", "approx": False, "upcoming": [],
+        "monthly": "0.00", "half_yearly": "0.00", "yearly": "0.00", "usd": None, "upcoming": [],
     }
 
 
@@ -143,19 +120,11 @@ def test_paused_and_cancelled_excluded_everywhere(auth, db):
     assert {m["merchant_name"] for m in ins["most_expensive"]} == {"Netflix", "Spotify"}
 
 
-def test_paused_usd_does_not_make_approx(auth, db):
+def test_paused_usd_excluded_from_usd_totals(auth, db):
     add(db, "Netflix", "649")
     add(db, "Paused USD", "10", currency=USD, status="paused")
-    assert get(auth, "/api/summary")["approx"] is False
-    assert get(auth, "/api/insights")["approx"] is False
-
-
-def test_rate_change_changes_totals(auth, db):
-    seed(db)
-    assert auth.put("/api/settings", json={"usd_inr_rate": "100"}, headers=csrf_headers(auth)).status_code == 200
-    s = get(auth, "/api/summary")
-    assert s["monthly"] == str(expected_monthly(rate=Decimal("100")))
-    assert s["monthly"] != "5455.25"
+    assert get(auth, "/api/summary")["usd"] is None
+    assert get(auth, "/api/insights")["usd_subscriptions"] == []
 
 
 def test_upcoming_item_shape_and_days_until(auth, db):
@@ -187,10 +156,10 @@ def test_upcoming_order_limit_and_null_payment_method(auth, db):
     assert all(x["days_until"] >= 0 for x in u)
 
 
-def test_upcoming_usd_amount_inr(auth, db):
+def test_upcoming_usd_amount_inr_is_null(auth, db):
     add(db, "ChatGPT", "20", currency=USD)
     u = get(auth, "/api/summary")["upcoming"][0]
-    assert (u["amount"], u["currency"], u["amount_inr"]) == ("20.00", "USD", "1760.00")
+    assert (u["amount"], u["currency"], u["amount_inr"]) == ("20.00", "USD", None)
 
 
 # --- insights ---
@@ -205,7 +174,8 @@ def test_insights_by_category_sums_to_monthly(auth, db):
     assert abs(sum(amounts) - expected_monthly()) <= Decimal("0.01") * len(cats)
     food = next(c for c in cats if c["category"] == "Food delivery")
     assert food["amount"] == "399.33" and len(food["subscription_ids"]) == 2
-    assert ins["approx"] is True
+    assert "Software/AI" not in {c["category"] for c in cats}  # USD subs are not in the INR charts
+    assert "approx" not in ins
 
 
 def test_insights_yearly_is_twelve_times_unrounded(auth, db):
@@ -249,3 +219,19 @@ def test_insights_most_expensive_top_10_by_yearly(auth, db):
     assert yearly == sorted(yearly, reverse=True)
     assert top[0]["merchant_name"] == "Annual" and top[0]["yearly_inr"] == "1500.00"
     assert top[1]["yearly_inr"] == "1332.00"
+
+
+def test_insights_inr_only_and_usd_listed_separately(auth, db):
+    seed(db)
+    ins = get(auth, "/api/insights?period=yearly")
+    assert {m["merchant_name"] for m in ins["most_expensive"]} == {n for n, _, c, _, _ in SAMPLE if c == INR}
+    assert sum(len(g["subscription_ids"]) for g in ins["by_payment_method"]) == 8
+    assert ins["usd_subscriptions"] == [
+        {"subscription_id": ins["usd_subscriptions"][0]["subscription_id"], "merchant_name": "ChatGPT", "yearly_amount": "240.00"},
+        {"subscription_id": ins["usd_subscriptions"][1]["subscription_id"], "merchant_name": "Notion", "yearly_amount": "120.00"},
+    ]
+
+
+def test_insights_usd_subscriptions_empty_without_usd(auth, db):
+    seed(db, SAMPLE[:1])
+    assert get(auth, "/api/insights")["usd_subscriptions"] == []

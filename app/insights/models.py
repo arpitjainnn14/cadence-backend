@@ -5,7 +5,7 @@ from app.core.db import Base
 
 
 class AppSetting(Base):
-    """Key/value settings, e.g. the `usd_inr_rate` row."""
+    """Key/value settings."""
 
     __tablename__ = "app_settings"
 

@@ -1,6 +1,5 @@
 import base64
 import binascii
-from decimal import Decimal
 from functools import lru_cache
 
 from py_vapid import Vapid
@@ -22,7 +21,6 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:dev@example.com"
-    default_usd_rate: Decimal = Decimal("88")
 
     @model_validator(mode="after")
     def _secrets_must_be_strong_in_production(self) -> "Settings":

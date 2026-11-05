@@ -1,11 +1,11 @@
-"""Pure billing math: renewal dates, monthly equivalents, currency conversion."""
+"""Pure billing math: renewal dates, monthly and yearly cost. No currency conversion."""
 
 import calendar
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from app.shared.enums import BillingCycle, Currency
+from app.shared.enums import BillingCycle
 
 IST = ZoneInfo("Asia/Kolkata")
 _CENT = Decimal("0.01")
@@ -46,11 +46,9 @@ def monthly_equivalent(amount: Decimal, cycle: BillingCycle) -> Decimal:
     return _round(amount / CYCLE_MONTHS[cycle])
 
 
-def to_inr(amount: Decimal, currency: Currency, usd_rate: Decimal) -> Decimal:
-    """Convert to INR (USD uses `usd_rate`), rounded to 2 places."""
-    if currency == Currency.USD:
-        amount = amount * usd_rate
-    return _round(amount)
+def yearly_amount(amount: Decimal, cycle: BillingCycle) -> Decimal:
+    """Per-year cost in the subscription's own currency (amount * 12 / cycle months), rounded to 2 places."""
+    return _round(amount * 12 / CYCLE_MONTHS[cycle])
 
 
 def today_ist(now: datetime | None = None) -> date:
@@ -58,10 +56,9 @@ def today_ist(now: datetime | None = None) -> date:
     return (now or datetime.now(IST)).astimezone(IST).date()
 
 
-def monthly_inr_unrounded(amount: Decimal, currency: Currency, cycle: BillingCycle, usd_rate: Decimal) -> Decimal:
-    """Per-month cost in INR with no rounding, so sums can be rounded once at the end."""
-    inr = amount * usd_rate if currency == Currency.USD else amount
-    return inr / CYCLE_MONTHS[cycle]
+def monthly_unrounded(amount: Decimal, cycle: BillingCycle) -> Decimal:
+    """Per-month cost with no rounding, so sums can be rounded once at the end."""
+    return amount / CYCLE_MONTHS[cycle]
 
 
 def round_money(value: Decimal) -> Decimal:

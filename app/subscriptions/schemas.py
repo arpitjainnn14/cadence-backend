@@ -57,8 +57,9 @@ class SubscriptionOut(BaseModel):
     created_at: datetime
     next_renewal: date
     logo_url: str | None
-    amount_inr: Decimal
-    yearly_inr: Decimal
+    yearly_amount: Decimal
+    amount_inr: Decimal | None
+    yearly_inr: Decimal | None
 
 
 class MerchantResolution(BaseModel):

@@ -5,7 +5,7 @@ from app.shared.billing import (
     add_months,
     monthly_equivalent,
     next_renewal,
-    to_inr,
+    yearly_amount,
     today_ist,
 )
 from app.shared.enums import BillingCycle, Currency
@@ -60,9 +60,12 @@ def test_monthly_equivalent():
     assert monthly_equivalent(Decimal("199"), BillingCycle.monthly) == Decimal("199.00")
 
 
-def test_to_inr():
-    assert to_inr(Decimal("20"), Currency.USD, Decimal("88")) == Decimal("1760.00")
-    assert to_inr(Decimal("649"), Currency.INR, Decimal("88")) == Decimal("649.00")
+def test_yearly_amount():
+    assert yearly_amount(Decimal("649"), BillingCycle.monthly) == Decimal("7788.00")
+    assert yearly_amount(Decimal("899"), BillingCycle.quarterly) == Decimal("3596.00")
+    assert yearly_amount(Decimal("1499"), BillingCycle.yearly) == Decimal("1499.00")
+    assert yearly_amount(Decimal("100"), BillingCycle.half_yearly) == Decimal("200.00")
+    assert yearly_amount(Decimal("10.01"), BillingCycle.quarterly) == Decimal("40.04")
 
 
 def test_today_ist_crosses_midnight():
@@ -70,10 +73,9 @@ def test_today_ist_crosses_midnight():
     assert today_ist(datetime(2026, 11, 4, 19, 0, tzinfo=UTC)) == date(2026, 11, 5)
 
 
-def test_monthly_inr_unrounded_keeps_precision():
-    from app.shared.billing import monthly_inr_unrounded
+def test_monthly_unrounded_keeps_precision():
+    from app.shared.billing import monthly_unrounded
 
-    got = monthly_inr_unrounded(Decimal("1499"), Currency.INR, BillingCycle.yearly, Decimal("88"))
+    got = monthly_unrounded(Decimal("1499"), BillingCycle.yearly)
     assert got != Decimal("124.92") and abs(got - Decimal("124.9166667")) < Decimal("0.000001")
-    usd = monthly_inr_unrounded(Decimal("20"), Currency.USD, BillingCycle.monthly, Decimal("88"))
-    assert usd == Decimal("1760")
+    assert monthly_unrounded(Decimal("20"), BillingCycle.monthly) == Decimal("20")

@@ -15,14 +15,12 @@ from sqlalchemy.orm import Session
 from app.auth.repository import UserRepository
 from app.auth.security import hash_password
 from app.core import db as core_db
-from app.insights.repository import SettingsRepository
 from app.payment_methods.repository import PaymentMethodRepository
 from app.shared.enums import CardNetwork, PaymentMethodType
 
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 8
 DEFAULT_CARDS_FILE = Path(__file__).resolve().parent.parent / "seed" / "cards.json"
 UPI_APPS = ("GPay", "PhonePe", "Paytm")
-DEFAULT_USD_INR_RATE = "88"
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Cadence operator commands.")
 
@@ -60,10 +58,10 @@ def create_user(email: Annotated[str, typer.Option(help="Login email for the (si
 def seed_cards(
     file: Annotated[Path, typer.Option(help="Card catalogue JSON; images are read from an `images/` folder beside it.")] = DEFAULT_CARDS_FILE,
 ) -> None:
-    """Idempotently seed the card catalogue, UPI apps and the default USD to INR rate.
+    """Idempotently seed the card catalogue and UPI apps.
 
     Existing rows are matched by (type, bank, name, network). An image is only set when the row has none,
-    so art uploaded later is never overwritten, and an existing usd_inr_rate is never changed.
+    so art uploaded later is never overwritten.
     """
     entries = json.loads(file.read_text())
     with unit_of_work() as session:
@@ -81,9 +79,6 @@ def seed_cards(
             if methods.find_by_identity(PaymentMethodType.upi, None, upi_app, None) is None:
                 methods.add(PaymentMethodType.upi, None, upi_app, None)
                 created += 1
-        settings = SettingsRepository(session)
-        if settings.get("usd_inr_rate") is None:
-            settings.set("usd_inr_rate", DEFAULT_USD_INR_RATE)
     typer.echo(f"Seeded: {created} new payment methods ({len(entries)} cards + {len(UPI_APPS)} UPI apps in catalogue).")
 
 
