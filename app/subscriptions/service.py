@@ -1,0 +1,106 @@
+import uuid
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from typing import Literal
+
+from app.payment_methods.repository import PaymentMethodRepository
+from app.shared.billing import CYCLE_MONTHS, next_renewal, to_inr
+from app.shared.enums import SubscriptionStatus
+from app.subscriptions.merchants import logo_url, resolve_domain
+from app.subscriptions.models import Subscription
+from app.subscriptions.repository import SubscriptionRepository
+from app.subscriptions.schemas import MerchantResolution, SubscriptionIn, SubscriptionOut
+
+SortKey = Literal["cost", "renewal", "name"]
+_STORED_FIELDS = tuple(
+    f for f in SubscriptionOut.model_fields if f not in ("next_renewal", "logo_url", "amount_inr", "yearly_inr")
+)
+
+
+class SubscriptionNotFound(Exception):
+    pass
+
+
+class UnknownPaymentMethod(Exception):
+    pass
+
+
+def resolve_merchant(name: str) -> MerchantResolution:
+    """Domain and logo URL for a merchant name; both None if unknown."""
+    domain = resolve_domain(name)
+    return MerchantResolution(domain=domain, logo_url=logo_url(domain) if domain else None)
+
+
+def to_out(sub: Subscription, usd_rate: Decimal, today: date) -> SubscriptionOut:
+    """The subscription plus derived fields (next renewal, logo, INR amounts)."""
+    yearly = to_inr(sub.amount * 12 / CYCLE_MONTHS[sub.billing_cycle], sub.currency, usd_rate)
+    return SubscriptionOut(
+        **{f: getattr(sub, f) for f in _STORED_FIELDS},
+        next_renewal=next_renewal(sub.start_date, sub.billing_cycle, today),
+        logo_url=logo_url(sub.merchant_domain) if sub.merchant_domain else None,
+        amount_inr=to_inr(sub.amount, sub.currency, usd_rate),
+        yearly_inr=yearly,
+    )
+
+
+def _fields(data: SubscriptionIn, payment_methods: PaymentMethodRepository, current: Subscription | None) -> dict:
+    """Column values for `data`, after validating the payment method and deriving domain and cancelled_at."""
+    if data.payment_method_id is not None and payment_methods.get(data.payment_method_id) is None:
+        raise UnknownPaymentMethod
+    fields = data.model_dump()
+    fields["merchant_domain"] = data.merchant_domain or resolve_domain(data.merchant_name)
+    if data.status != SubscriptionStatus.cancelled:
+        fields["cancelled_at"] = None
+    elif current is not None and current.cancelled_at is not None:
+        fields["cancelled_at"] = current.cancelled_at
+    else:
+        fields["cancelled_at"] = datetime.now(UTC)
+    return fields
+
+
+def get_subscription(repo: SubscriptionRepository, sub_id: uuid.UUID) -> Subscription:
+    """The subscription, or SubscriptionNotFound."""
+    sub = repo.get(sub_id)
+    if sub is None:
+        raise SubscriptionNotFound
+    return sub
+
+
+def create_subscription(
+    repo: SubscriptionRepository, payment_methods: PaymentMethodRepository, data: SubscriptionIn
+) -> Subscription:
+    """Create a subscription; fills the domain from the merchant name if omitted."""
+    return repo.add(**_fields(data, payment_methods, None))
+
+
+def replace_subscription(
+    repo: SubscriptionRepository, payment_methods: PaymentMethodRepository, sub_id: uuid.UUID, data: SubscriptionIn
+) -> Subscription:
+    """Full replace; cancelled_at is set on entering cancelled and cleared on leaving it."""
+    sub = get_subscription(repo, sub_id)
+    repo.update(sub, _fields(data, payment_methods, sub))
+    return sub
+
+
+def delete_subscription(repo: SubscriptionRepository, sub_id: uuid.UUID) -> None:
+    repo.delete(get_subscription(repo, sub_id))
+
+
+def list_subscriptions(
+    repo: SubscriptionRepository,
+    usd_rate: Decimal,
+    today: date,
+    status: SubscriptionStatus | None = None,
+    payment_method_id: uuid.UUID | None = None,
+    category: str | None = None,
+    sort: SortKey = "name",
+) -> list[SubscriptionOut]:
+    """Filtered subscriptions with derived fields, sorted: cost (yearly INR, high first), renewal, or name."""
+    items = [to_out(s, usd_rate, today) for s in repo.list(status, payment_method_id, category)]
+    if sort == "cost":
+        items.sort(key=lambda s: (-s.yearly_inr, s.merchant_name.lower()))
+    elif sort == "renewal":
+        items.sort(key=lambda s: (s.next_renewal, s.merchant_name.lower()))
+    else:
+        items.sort(key=lambda s: s.merchant_name.lower())
+    return items
