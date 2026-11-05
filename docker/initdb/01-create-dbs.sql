@@ -1,0 +1,2 @@
+CREATE DATABASE subs;
+CREATE DATABASE subs_test;
