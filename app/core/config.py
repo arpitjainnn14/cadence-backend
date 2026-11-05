@@ -2,6 +2,7 @@ import base64
 import binascii
 from functools import lru_cache
 
+from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +54,11 @@ class Settings(BaseSettings):
             raise ValueError("vapid_public_key must be base64url") from exc
         if len(public) != 65 or public[0] != 0x04:
             raise ValueError("vapid_public_key must decode to a 65-byte uncompressed P-256 point")
+        derived = Vapid.from_string(self.vapid_private_key).public_key.public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+        )
+        if derived != public:
+            raise ValueError("vapid_public_key does not match vapid_private_key")
 
 
 @lru_cache

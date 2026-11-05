@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.auth.models import LoginAttempt, RefreshToken, User
@@ -69,6 +69,14 @@ class RefreshTokenRepository:
 class LoginAttemptRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    def lock_for(self, email: str) -> None:
+        """Take a transaction-scoped advisory lock on the normalised email.
+
+        Concurrent logins for one email queue here, so the lockout check and the recorded failure
+        cannot interleave and let a burst exceed the limit. Released at commit or rollback.
+        """
+        self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:email))"), {"email": _normalise(email)})
 
     def add(self, email: str, ip: str, success: bool, at: datetime | None = None) -> LoginAttempt:
         """Record a login attempt (email normalised). `at` defaults to the database clock."""
