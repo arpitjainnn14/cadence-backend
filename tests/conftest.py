@@ -4,12 +4,17 @@ import os
 os.environ.setdefault("COOKIE_SECURE", "false")
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-0123456789abcdef")  # >= 32 bytes: no HMAC length warnings
 
+from datetime import UTC, datetime
+
 import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth import service
+from app.auth.repository import UserRepository
+from app.auth.security import hash_password
 from app.core.config import Settings, get_settings
 from app.core.db import Base, get_db
 from app.main import create_app
@@ -61,3 +66,46 @@ def csrf_headers(client) -> dict[str, str]:
         token = "test-csrf-token"
         client.cookies.set("csrf_token", token, path="/")
     return {"X-CSRF-Token": token}
+
+
+EMAIL = "arpit@example.com"
+PASSWORD = "correct-horse"
+
+
+def use_test_sessions(monkeypatch, engine) -> None:
+    """Point `app.core.db.SessionLocal` (used by get_db and the CLI) at the test engine."""
+    monkeypatch.setattr("app.core.db.SessionLocal", sessionmaker(bind=engine, expire_on_commit=False))
+
+
+@pytest.fixture
+def user(db):
+    u = UserRepository(db).create(EMAIL, hash_password(PASSWORD))
+    db.commit()
+    return u
+
+
+def login(client, email=EMAIL, password=PASSWORD):
+    return client.post("/api/auth/login", json={"email": email, "password": password})
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    state = {"now": datetime.now(UTC)}  # real "now" so JWT iat/exp validation (real clock) stays consistent
+    monkeypatch.setattr(service, "now", lambda: state["now"])
+    return state
+
+
+def set_refresh_cookie(client, value):
+    client.cookies.clear()
+    client.cookies.set("refresh_token", value, path="/api/auth")
+
+
+@pytest.fixture
+def real_uow_client(engine, user, monkeypatch):
+    """Client using the REAL get_db (commit on success, rollback on exception) on the test DB."""
+    use_test_sessions(monkeypatch, engine)
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: Settings(cookie_secure=False)
+    assert get_db not in app.dependency_overrides
+    with TestClient(app) as c:
+        yield c

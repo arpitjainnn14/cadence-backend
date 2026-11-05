@@ -19,6 +19,10 @@ class UserRepository:
         """Look up by email, case-insensitively (emails are stored lowercase)."""
         return self.db.scalar(select(User).where(User.email == _normalise(email)))
 
+    def any_exists(self) -> bool:
+        """True if at least one user exists (the app is single-user)."""
+        return self.db.scalar(select(User.id).limit(1)) is not None
+
     def get_by_id(self, user_id: uuid.UUID) -> User | None:
         return self.db.get(User, user_id)
 

@@ -9,8 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import ratelimit, service
 from app.auth.models import LoginAttempt, RefreshToken
 from app.auth.repository import LoginAttemptRepository
-from tests.conftest import csrf_headers
-from tests.test_auth import EMAIL, PASSWORD, clock, login, real_uow_client, user  # noqa: F401
+from tests.conftest import EMAIL, PASSWORD, csrf_headers, login
 
 LOCKED = {"detail": "Too many attempts. Try again later."}
 

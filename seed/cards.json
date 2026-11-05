@@ -1,0 +1,13 @@
+[
+  {"type": "credit_card", "bank": "HDFC", "name": "Moneyback+", "network": "visa", "image": "hdfc-moneyback-plus-visa.webp"},
+  {"type": "credit_card", "bank": "ICICI", "name": "Sapphiro", "network": "rupay", "image": "icici-sapphiro-rupay.webp"},
+  {"type": "credit_card", "bank": "ICICI", "name": "Sapphiro", "network": "visa", "image": "icici-sapphiro-visa.webp"},
+  {"type": "credit_card", "bank": "ICICI", "name": "Amazon Pay", "network": "visa", "image": "icici-amazon-pay-visa.webp"},
+  {"type": "credit_card", "bank": "ICICI", "name": "Coral", "network": "rupay", "image": "icici-coral-rupay.webp"},
+  {"type": "credit_card", "bank": "SBI", "name": "Cashback", "network": "visa", "image": "sbi-cashback-visa.webp"},
+  {"type": "credit_card", "bank": "Scapia", "name": "Scapia", "network": "mastercard", "image": "scapia-scapia-mastercard.webp"},
+  {"type": "credit_card", "bank": "Scapia", "name": "Scapia", "network": "rupay", "image": "scapia-scapia-rupay.webp"},
+  {"type": "credit_card", "bank": "Slice", "name": "Slice", "network": "rupay", "image": "slice-slice-rupay.webp"},
+  {"type": "credit_card", "bank": "IDFC First", "name": "Millennia", "network": "visa", "image": "idfc-first-millennia-visa.webp"},
+  {"type": "credit_card", "bank": "BOB", "name": "Select", "network": "mastercard", "image": "bob-select-mastercard.webp"}
+]

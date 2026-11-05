@@ -3,9 +3,8 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
-from app.auth import service
 from app.auth.models import RefreshToken
 from app.auth.repository import RefreshTokenRepository, UserRepository
 from app.auth.security import (
@@ -17,49 +16,8 @@ from app.auth.security import (
     new_refresh_token,
     verify_password,
 )
-from app.core.config import Settings, get_settings
-from app.core.db import get_db
-from app.main import create_app
-from fastapi.testclient import TestClient
-from tests.conftest import csrf_headers
-
-EMAIL = "arpit@example.com"
-PASSWORD = "correct-horse"
-
-
-@pytest.fixture
-def user(db):
-    u = UserRepository(db).create(EMAIL, hash_password(PASSWORD))
-    db.commit()
-    return u
-
-
-def login(client, email=EMAIL, password=PASSWORD):
-    return client.post("/api/auth/login", json={"email": email, "password": password})
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    state = {"now": datetime.now(UTC)}  # real "now" so JWT iat/exp validation (real clock) stays consistent
-    monkeypatch.setattr(service, "now", lambda: state["now"])
-    return state
-
-
-def set_refresh_cookie(client, value):
-    client.cookies.clear()
-    client.cookies.set("refresh_token", value, path="/api/auth")
-
-
-@pytest.fixture
-def real_uow_client(engine, user, monkeypatch):
-    """Client using the REAL get_db (commit on success, rollback on exception) on the test DB."""
-    monkeypatch.setattr("app.core.db.SessionLocal", sessionmaker(bind=engine, expire_on_commit=False))
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(cookie_secure=False)
-    assert get_db not in app.dependency_overrides
-    with TestClient(app) as c:
-        yield c
-
+from app.core.config import get_settings
+from tests.conftest import EMAIL, PASSWORD, csrf_headers, login, set_refresh_cookie
 
 # --- security primitives ---
 
