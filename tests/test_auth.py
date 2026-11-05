@@ -21,6 +21,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.main import create_app
 from fastapi.testclient import TestClient
+from tests.conftest import csrf_headers
 
 EMAIL = "arpit@example.com"
 PASSWORD = "correct-horse"
@@ -155,7 +156,7 @@ def test_token_with_wrong_alg_or_type_rejected(client, user):
 
 
 def test_refresh_without_cookie_401(client, user):
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
 
 
 def test_refresh_rotates(real_uow_client, engine, clock):
@@ -163,7 +164,7 @@ def test_refresh_rotates(real_uow_client, engine, clock):
     login(client)
     old = client.cookies["refresh_token"]
 
-    r = client.post("/api/auth/refresh")
+    r = client.post("/api/auth/refresh", headers=csrf_headers(client))
     assert r.status_code == 200
     new = client.cookies["refresh_token"]
     assert new != old
@@ -172,7 +173,7 @@ def test_refresh_rotates(real_uow_client, engine, clock):
     # Old token replayed after the grace window: 401 and the whole family is revoked.
     clock["now"] += timedelta(seconds=11)
     set_refresh_cookie(client, old)
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
 
     # The revocation must have been COMMITTED despite the 401 response (verified from a fresh session).
     with Session(engine) as s:
@@ -180,44 +181,44 @@ def test_refresh_rotates(real_uow_client, engine, clock):
         assert len(rows) == 2 and all(t.revoked_at is not None for t in rows)
 
     set_refresh_cookie(client, new)
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
 
 
 def test_refresh_race_within_grace(real_uow_client, engine, clock):
     client = real_uow_client
     login(client)
     old = client.cookies["refresh_token"]
-    client.post("/api/auth/refresh")
+    client.post("/api/auth/refresh", headers=csrf_headers(client))
     new = client.cookies["refresh_token"]
 
     clock["now"] += timedelta(seconds=10)
     set_refresh_cookie(client, old)
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
 
     set_refresh_cookie(client, new)
-    assert client.post("/api/auth/refresh").status_code == 200
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 200
 
 
 def test_expired_refresh_token_401(client, user, clock):
     login(client)
     clock["now"] += timedelta(days=31)
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
 
 
 def test_logout_revokes(client, user):
     login(client)
     old = client.cookies["refresh_token"]
-    r = client.post("/api/auth/logout")
+    r = client.post("/api/auth/logout", headers=csrf_headers(client))
     assert r.status_code == 204
     cleared = " ".join(r.headers.get_list("set-cookie"))
     for name in ("access_token", "refresh_token", "csrf_token"):
         assert f"{name}=" in cleared and "Max-Age=0" in cleared
     set_refresh_cookie(client, old)
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
 
 
 def test_logout_without_cookie_is_204(client, user):
-    assert client.post("/api/auth/logout").status_code == 204
+    assert client.post("/api/auth/logout", headers=csrf_headers(client)).status_code == 204
 
 
 # --- repositories ---

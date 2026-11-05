@@ -1,4 +1,7 @@
 from collections.abc import Iterator
+from typing import Annotated
+
+from fastapi import Depends
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -22,3 +25,9 @@ def get_db() -> Iterator[Session]:
         except Exception:
             session.rollback()
             raise
+
+
+# scope="function": the commit/rollback in get_db runs as soon as the endpoint returns, i.e. BEFORE the
+# response is sent. With the default (request) scope it would run after, so a client could receive a 200
+# and read stale data, and a failed commit could not turn into an error response.
+DbSession = Annotated[Session, Depends(get_db, scope="function")]

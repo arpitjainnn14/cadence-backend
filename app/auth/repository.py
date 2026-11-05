@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.auth.models import RefreshToken, User
+from app.auth.models import LoginAttempt, RefreshToken, User
 
 
 def _normalise(email: str) -> str:
@@ -60,3 +60,31 @@ class RefreshTokenRepository:
     def revoke(self, token: RefreshToken, now: datetime) -> None:
         token.revoked_at = now
         self.db.flush()
+
+
+class LoginAttemptRepository:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def add(self, email: str, ip: str, success: bool, at: datetime | None = None) -> LoginAttempt:
+        """Record a login attempt (email normalised). `at` defaults to the database clock."""
+        attempt = LoginAttempt(email=_normalise(email), ip=ip, success=success)
+        if at is not None:
+            attempt.created_at = at
+        self.db.add(attempt)
+        self.db.flush()
+        return attempt
+
+    def count_failures_by_email(self, email: str, since: datetime) -> int:
+        """Failed attempts for this (normalised) email at or after `since`."""
+        return self._count(LoginAttempt.email == _normalise(email), since)
+
+    def count_failures_by_ip(self, ip: str, since: datetime) -> int:
+        """Failed attempts from this IP at or after `since`."""
+        return self._count(LoginAttempt.ip == ip, since)
+
+    def _count(self, condition, since: datetime) -> int:
+        stmt = select(func.count()).select_from(LoginAttempt).where(
+            condition, LoginAttempt.success.is_(False), LoginAttempt.created_at >= since
+        )
+        return self.db.scalar(stmt) or 0

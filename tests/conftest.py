@@ -52,3 +52,12 @@ def client(db):
     )
     with TestClient(app) as c:
         yield c
+
+
+def csrf_headers(client) -> dict[str, str]:
+    """X-CSRF-Token header matching the client's csrf_token cookie (sets a cookie if there is none yet)."""
+    token = client.cookies.get("csrf_token")
+    if token is None:
+        token = "test-csrf-token"
+        client.cookies.set("csrf_token", token, path="/")
+    return {"X-CSRF-Token": token}

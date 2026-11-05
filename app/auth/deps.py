@@ -1,20 +1,22 @@
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy.orm import Session
-
 from app.auth.models import User
-from app.auth.repository import RefreshTokenRepository, UserRepository
+from app.auth.repository import LoginAttemptRepository, RefreshTokenRepository, UserRepository
 from app.auth.security import InvalidToken, decode_access_token
-from app.core.db import get_db
+from app.core.db import DbSession
 
 
-def get_user_repo(db: Annotated[Session, Depends(get_db)]) -> UserRepository:
+def get_user_repo(db: DbSession) -> UserRepository:
     return UserRepository(db)
 
 
-def get_refresh_token_repo(db: Annotated[Session, Depends(get_db)]) -> RefreshTokenRepository:
+def get_refresh_token_repo(db: DbSession) -> RefreshTokenRepository:
     return RefreshTokenRepository(db)
+
+
+def get_login_attempt_repo(db: DbSession) -> LoginAttemptRepository:
+    return LoginAttemptRepository(db)
 
 
 def current_user(request: Request, users: Annotated[UserRepository, Depends(get_user_repo)]) -> User:
