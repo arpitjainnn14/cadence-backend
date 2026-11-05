@@ -117,16 +117,17 @@ def test_dev_secret_allowed_when_cookie_insecure(monkeypatch):
     assert Settings(_env_file=None, cookie_secure=False).jwt_secret == "dev-insecure"
 
 
-def test_docs_and_schema_hidden_in_production(vapid_keys):
+def test_builtin_docs_disabled_in_production(vapid_keys):
     client = TestClient(create_app(Settings(**STRONG, **vapid_keys)))
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404
     assert client.get("/api/health").status_code == 200
 
 
-def test_docs_and_schema_available_in_development():
+def test_builtin_docs_disabled_in_development():
     client = TestClient(create_app(Settings(_env_file=None, cookie_secure=False)))
-    assert client.get("/openapi.json").status_code == 200
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404
 
 
 def test_engine_options_on_vercel_uses_nullpool():
