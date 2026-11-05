@@ -28,3 +28,8 @@ class PaymentMethod(Base):
         if self.bank and not self.name.lower().startswith(self.bank.lower()):
             return f"{self.bank} {self.name}"
         return self.name
+
+    @property
+    def has_image(self) -> bool:
+        """True when card art is stored (checked via the mime so the image blob isn't loaded)."""
+        return self.image_mime is not None
