@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("COOKIE_SECURE", "false")
 
 import pytest
+from alembic import command
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.core.db import Base, get_db
 from app.main import create_app
+from tests.migrations import alembic_config, reset_schema
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -23,8 +25,8 @@ def engine():
     import app.models  # noqa: F401  (registers every feature's tables on Base.metadata)
 
     eng = create_engine(TEST_DATABASE_URL)
-    Base.metadata.drop_all(eng)
-    Base.metadata.create_all(eng)
+    reset_schema(eng)
+    command.upgrade(alembic_config(TEST_DATABASE_URL), "head")
     yield eng
     eng.dispose()
 
