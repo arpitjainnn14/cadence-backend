@@ -4,6 +4,7 @@ from app.auth.csrf import CSRFMiddleware
 from app.auth.router import router as auth_router
 from app.insights.router import router as insights_router
 from app.payment_methods.router import router as payment_methods_router
+from app.reminders.router import internal_router, router as push_router
 from app.subscriptions.router import merchants_router, router as subscriptions_router
 
 
@@ -20,6 +21,8 @@ def create_app() -> FastAPI:
     app.include_router(subscriptions_router)
     app.include_router(merchants_router)
     app.include_router(insights_router)
+    app.include_router(push_router)
+    app.include_router(internal_router)
     return app
 
 
