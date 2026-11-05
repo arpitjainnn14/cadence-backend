@@ -67,6 +67,10 @@ def refresh(
         user, access, new_refresh = service.rotate_refresh(users, tokens, refresh_token, service.now())
     except (service.RefreshInvalid, service.RefreshReused):
         return _refresh_rejected(settings)
+    except service.RefreshRaced:
+        # No Set-Cookie either way: the winning request already set fresh cookies, and clearing them
+        # here would log the winner out.
+        return JSONResponse(status_code=409, content={"detail": "Refresh already in progress"})
     set_auth_cookies(response, settings, access, new_refresh)
     return user
 

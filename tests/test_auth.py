@@ -147,13 +147,21 @@ def test_refresh_race_within_grace(real_uow_client, engine, clock):
     login(client)
     old = client.cookies["refresh_token"]
     client.post("/api/auth/refresh", headers=csrf_headers(client))
-    new = client.cookies["refresh_token"]
+    winner_cookies = {name: client.cookies[name] for name in ("access_token", "refresh_token", "csrf_token")}
 
+    # The loser presents the retired token (explicit Cookie header, so the winner's jar is untouched).
     clock["now"] += timedelta(seconds=10)
-    set_refresh_cookie(client, old)
-    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
+    loser = client.post(
+        "/api/auth/refresh",
+        headers={**csrf_headers(client), "Cookie": f"refresh_token={old}; csrf_token={client.cookies['csrf_token']}"},
+    )
+    assert loser.status_code == 409
+    assert loser.json() == {"detail": "Refresh already in progress"}
+    assert loser.headers.get_list("set-cookie") == []  # must not clear or replace the winner's cookies
 
-    set_refresh_cookie(client, new)
+    # The winner's session is intact and its cookies are exactly what it was given.
+    assert {name: client.cookies[name] for name in winner_cookies} == winner_cookies
+    assert client.get("/api/auth/me").status_code == 200
     assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 200
 
 

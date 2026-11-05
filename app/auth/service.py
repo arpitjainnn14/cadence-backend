@@ -17,7 +17,11 @@ REFRESH_GRACE = timedelta(seconds=10)  # a just-rotated token may be replayed by
 
 
 class RefreshInvalid(Exception):
-    """Unknown, expired, or recently-rotated (grace window) refresh token. Nothing to clean up."""
+    """Unknown or expired refresh token. Nothing to clean up."""
+
+
+class RefreshRaced(Exception):
+    """A just-rotated token replayed within the grace window: a concurrent refresh already won."""
 
 
 class RefreshReused(Exception):
@@ -63,7 +67,7 @@ def rotate_refresh(
 ) -> tuple[User, str, str]:
     """Exchange a refresh token for a new session in the same family.
 
-    Raises RefreshInvalid (reject, change nothing) or RefreshReused (family revoked; the caller must
+    Raises RefreshInvalid (reject, change nothing), RefreshRaced (lost a benign race, change nothing) or RefreshReused (family revoked; the caller must
     make sure that revocation is committed).
     """
     token = tokens.get_by_hash(hash_token(raw))
@@ -71,7 +75,7 @@ def rotate_refresh(
         raise RefreshInvalid
     if token.revoked_at is not None:
         if token.replaced_at is not None and at - token.replaced_at <= REFRESH_GRACE:
-            raise RefreshInvalid
+            raise RefreshRaced
         tokens.revoke_family(token.family_id, at)
         raise RefreshReused
     user = users.get_by_id(token.user_id)
