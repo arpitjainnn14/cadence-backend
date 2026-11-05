@@ -1,8 +1,10 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from app.auth.csrf import CSRFMiddleware
 from app.auth.router import router as auth_router
 from app.core.config import Settings, get_settings
+from app.core.health import HealthRepo
 from app.insights.router import router as insights_router
 from app.payment_methods.router import router as payment_methods_router
 from app.reminders.router import internal_router, router as push_router
@@ -18,6 +20,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/health/db")
+    def health_db(repo: HealthRepo) -> JSONResponse:
+        try:
+            repo.ping()
+        except Exception:
+            return JSONResponse({"status": "unavailable"}, status_code=503)
+        return JSONResponse({"status": "ok"})
 
     app.add_middleware(CSRFMiddleware)
     app.include_router(auth_router)

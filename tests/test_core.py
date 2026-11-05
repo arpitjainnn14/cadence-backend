@@ -127,3 +127,24 @@ def test_docs_and_schema_hidden_in_production(vapid_keys):
 def test_docs_and_schema_available_in_development():
     client = TestClient(create_app(Settings(_env_file=None, cookie_secure=False)))
     assert client.get("/openapi.json").status_code == 200
+
+
+def test_engine_options_on_vercel_uses_nullpool():
+    from sqlalchemy.pool import NullPool
+
+    from app.core.db import engine_options
+
+    opts = engine_options({"VERCEL": "1"})
+    assert opts["poolclass"] is NullPool
+    assert opts["connect_args"] == {"prepare_threshold": None}
+    assert "pool_recycle" not in opts
+
+
+def test_engine_options_default_keeps_pool_settings():
+    from app.core.db import engine_options
+
+    opts = engine_options({})
+    assert "poolclass" not in opts
+    assert opts["pool_pre_ping"] is True
+    assert opts["pool_recycle"] == 300
+    assert opts["connect_args"] == {"prepare_threshold": None}

@@ -29,3 +29,6 @@ testpaths = ["tests"]
 # Starlette TestClient warns that using httpx is deprecated in favour of httpx2 (upstream: Starlette/FastAPI testclient);
 # drop this filter once the project moves to httpx2.
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.vercel]
+entrypoint = "app.main:app"

@@ -1,0 +1,13 @@
+tests/
+docs/
+.superpowers/
+scripts/
+docker/
+docker-compose.yml
+Dockerfile
+.dockerignore
+.venv/
+alembic/
+alembic.ini
+seed/
+.env*
