@@ -114,6 +114,12 @@ def test_summary_sample_totals(auth, db):
     assert s["yearly"] == str((exact * 12).quantize(Decimal("0.01")))
 
 
+def test_summary_quarterly_sub_is_prorated_from_unrounded_monthly(auth, db):
+    add(db, "Quarterly", "100", INR, Q)
+    s = get(auth, "/api/summary")
+    assert (s["monthly"], s["half_yearly"], s["yearly"]) == ("33.33", "200.00", "400.00")
+
+
 def test_summary_no_usd_not_approx(auth, db):
     seed(db, [r for r in SAMPLE if r[2] == INR])
     assert get(auth, "/api/summary")["approx"] is False

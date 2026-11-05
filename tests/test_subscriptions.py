@@ -226,6 +226,33 @@ def test_put_is_full_replace_domain_refilled(auth):
     assert r["merchant_domain"] == "netflix.com"
 
 
+def test_rename_with_echoed_domain_re_resolves(auth):
+    sub = create(auth).json()  # Netflix -> netflix.com
+    echoed = body(merchant_name="Spotify", merchant_domain=sub["merchant_domain"])
+    r = auth.put(f"{URL}/{sub['id']}", json=echoed, headers=csrf_headers(auth)).json()
+    assert r["merchant_domain"] == "spotify.com"
+    # An unknown new name clears the stale domain rather than keeping netflix.com.
+    echoed = body(merchant_name="Local Gym", merchant_domain="spotify.com")
+    r = auth.put(f"{URL}/{sub['id']}", json=echoed, headers=csrf_headers(auth)).json()
+    assert r["merchant_domain"] is None and r["logo_url"] is None
+
+
+def test_rename_with_explicit_domain_keeps_it(auth):
+    sub = create(auth).json()
+    r = auth.put(
+        f"{URL}/{sub['id']}", json=body(merchant_name="Spotify", merchant_domain="custom.example"), headers=csrf_headers(auth)
+    ).json()
+    assert r["merchant_domain"] == "custom.example"
+
+
+def test_edit_without_rename_keeps_custom_domain(auth):
+    sub = create(auth, merchant_domain="custom.example").json()
+    r = auth.put(
+        f"{URL}/{sub['id']}", json=body(merchant_domain="custom.example", amount="700"), headers=csrf_headers(auth)
+    ).json()
+    assert r["merchant_domain"] == "custom.example"
+
+
 def test_cancel_sets_and_reactivate_clears_cancelled_at(auth):
     sub = create(auth).json()
     url = f"{URL}/{sub['id']}"

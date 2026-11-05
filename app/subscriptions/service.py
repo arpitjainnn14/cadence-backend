@@ -43,12 +43,24 @@ def to_out(sub: Subscription, usd_rate: Decimal, today: date) -> SubscriptionOut
     )
 
 
+def _domain(data: SubscriptionIn, current: Subscription | None) -> str | None:
+    """The stored domain, or one resolved from the name.
+
+    On a rename where the client echoed the old domain back, the domain is stale: re-resolve it from the new
+    name (null if unknown). A domain that differs from the stored one was typed on purpose and is kept.
+    """
+    renamed = current is not None and data.merchant_name != current.merchant_name
+    if renamed and data.merchant_domain == current.merchant_domain:
+        return resolve_domain(data.merchant_name)
+    return data.merchant_domain or resolve_domain(data.merchant_name)
+
+
 def _fields(data: SubscriptionIn, payment_methods: PaymentMethodRepository, current: Subscription | None) -> dict:
     """Column values for `data`, after validating the payment method and deriving domain and cancelled_at."""
     if data.payment_method_id is not None and payment_methods.get(data.payment_method_id) is None:
         raise UnknownPaymentMethod
     fields = data.model_dump()
-    fields["merchant_domain"] = data.merchant_domain or resolve_domain(data.merchant_name)
+    fields["merchant_domain"] = _domain(data, current)
     if data.status != SubscriptionStatus.cancelled:
         fields["cancelled_at"] = None
     elif current is not None and current.cancelled_at is not None:

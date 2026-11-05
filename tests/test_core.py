@@ -1,6 +1,7 @@
 import base64
 
 import pytest
+from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from pydantic import ValidationError
@@ -9,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core import db as db_module
 from app.core.config import Settings
+from app.main import create_app
 
 
 @pytest.fixture
@@ -113,3 +115,15 @@ def test_unpadded_and_padded_public_key_both_accepted(vapid_keys):
 def test_dev_secret_allowed_when_cookie_insecure(monkeypatch):
     monkeypatch.delenv("JWT_SECRET")  # conftest sets a long test secret; check the built-in default
     assert Settings(_env_file=None, cookie_secure=False).jwt_secret == "dev-insecure"
+
+
+def test_docs_and_schema_hidden_in_production(vapid_keys):
+    client = TestClient(create_app(Settings(**STRONG, **vapid_keys)))
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404
+    assert client.get("/api/health").status_code == 200
+
+
+def test_docs_and_schema_available_in_development():
+    client = TestClient(create_app(Settings(_env_file=None, cookie_secure=False)))
+    assert client.get("/openapi.json").status_code == 200

@@ -8,7 +8,15 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
 
-engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+engine = create_engine(
+    get_settings().database_url,
+    pool_pre_ping=True,
+    # Neon closes idle connections and fronts Postgres with PgBouncer: recycle before it drops them, and
+    # never use server-side prepared statements (psycopg 3 would otherwise prepare after 5 executions,
+    # which breaks when the pooler hands each transaction a different backend).
+    pool_recycle=300,
+    connect_args={"prepare_threshold": None},
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
