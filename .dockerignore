@@ -1,0 +1,14 @@
+.git
+.venv
+tests
+docs
+.superpowers
+scripts
+__pycache__
+**/__pycache__
+.pytest_cache
+.env*
+docker/
+docker-compose.yml
+Dockerfile
+.dockerignore
