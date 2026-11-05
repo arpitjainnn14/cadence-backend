@@ -1,6 +1,9 @@
+import base64
+import binascii
 from decimal import Decimal
 from functools import lru_cache
 
+from py_vapid import Vapid
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,7 +37,24 @@ class Settings(BaseSettings):
                     raise ValueError(f"{name} must be set in production")
             if not self.vapid_subject.startswith(("mailto:", "https://")):
                 raise ValueError("vapid_subject must start with mailto: or https://")
+            self._validate_vapid_keys()
         return self
+
+    def _validate_vapid_keys(self) -> None:
+        """Fail at startup, not at the first push, when the VAPID keys are malformed."""
+        try:
+            Vapid.from_string(self.vapid_private_key)
+        except Exception as exc:  # py_vapid raises assorted types for bad input
+            raise ValueError(
+                "vapid_private_key must be a raw base64url key (npx web-push generate-vapid-keys) "
+                "or the base64url DER body from `vapid --gen`, without PEM headers"
+            ) from exc
+        try:
+            public = base64.urlsafe_b64decode(self.vapid_public_key + "=" * (-len(self.vapid_public_key) % 4))
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("vapid_public_key must be base64url") from exc
+        if len(public) != 65 or public[0] != 0x04:
+            raise ValueError("vapid_public_key must decode to a 65-byte uncompressed P-256 point")
 
 
 @lru_cache

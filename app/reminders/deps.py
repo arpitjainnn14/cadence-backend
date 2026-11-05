@@ -24,8 +24,8 @@ def get_reminder_log_repo(db: DbSession) -> ReminderLogRepository:
 def get_push_sender(settings: Annotated[Settings, Depends(get_settings)]) -> Sender:
     """The real sender (tests override this dependency).
 
-    `vapid_private_key` must be the raw base64url key (what `vapid --gen` or
-    `web-push generate-vapid-keys` produce), not PEM.
+    `vapid_private_key` must be a raw base64url key (`web-push generate-vapid-keys`) or the base64url
+    DER body from `vapid --gen`, not PEM; Settings validates this in production.
     """
 
     def send(push_sub: PushSubscription, payload: dict) -> None:

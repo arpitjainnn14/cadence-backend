@@ -1,4 +1,8 @@
+import base64
+
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
@@ -40,17 +44,52 @@ def test_get_db_rolls_back_and_reraises_on_exception(engine, probe_table):
     assert _count(engine) == 0
 
 
-VAPID = {"vapid_private_key": "priv", "vapid_public_key": "pub", "vapid_subject": "mailto:a@example.com"}
+STRONG = {"jwt_secret": "x" * 32, "scheduler_secret": "y" * 32, "cookie_secure": True}
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+@pytest.fixture(scope="module")
+def vapid_keys() -> dict[str, str]:
+    """A freshly generated pair in the raw base64url form `web-push generate-vapid-keys` prints."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    return {
+        "vapid_private_key": _b64url(key.private_numbers().private_value.to_bytes(32, "big")),
+        "vapid_public_key": _b64url(
+            key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+        ),
+        "vapid_subject": "mailto:a@example.com",
+    }
 
 
 def test_empty_vapid_rejected_when_cookie_secure():
     with pytest.raises(ValueError, match="vapid_private_key"):
-        Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32)
+        Settings(**STRONG)
 
 
-def test_bad_vapid_subject_rejected_when_cookie_secure():
+def test_bad_vapid_subject_rejected_when_cookie_secure(vapid_keys):
     with pytest.raises(ValueError, match="vapid_subject"):
-        Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32, **{**VAPID, "vapid_subject": "dev"})
+        Settings(**STRONG, **{**vapid_keys, "vapid_subject": "dev"})
+
+
+def test_pem_private_key_rejected_when_cookie_secure(vapid_keys):
+    pem = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg\n-----END PRIVATE KEY-----\n"
+    with pytest.raises(ValueError, match="vapid_private_key"):
+        Settings(**STRONG, **{**vapid_keys, "vapid_private_key": pem})
+
+
+@pytest.mark.parametrize("public", ["not-a-key", "AAAA", "!!!!"])
+def test_bad_public_key_rejected_when_cookie_secure(vapid_keys, public):
+    with pytest.raises(ValueError, match="vapid_public_key"):
+        Settings(**STRONG, **{**vapid_keys, "vapid_public_key": public})
+
+
+def test_public_key_without_uncompressed_prefix_rejected(vapid_keys):
+    raw = base64.urlsafe_b64decode(vapid_keys["vapid_public_key"] + "==")
+    with pytest.raises(ValueError, match="vapid_public_key"):
+        Settings(**STRONG, **{**vapid_keys, "vapid_public_key": _b64url(b"\x02" + raw[1:])})
 
 
 def test_dev_secret_rejected_when_cookie_secure():
@@ -58,13 +97,17 @@ def test_dev_secret_rejected_when_cookie_secure():
         Settings(cookie_secure=True)
 
 
-def test_short_secret_rejected_when_cookie_secure():
+def test_short_secret_rejected_when_cookie_secure(vapid_keys):
     with pytest.raises(ValidationError):
-        Settings(cookie_secure=True, jwt_secret="x" * 31, scheduler_secret="y" * 32)
+        Settings(cookie_secure=True, jwt_secret="x" * 31, scheduler_secret="y" * 32, **vapid_keys)
 
 
-def test_strong_secrets_allowed_when_cookie_secure():
-    Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32, **VAPID)
+def test_strong_secrets_and_real_vapid_keys_allowed_when_cookie_secure(vapid_keys):
+    Settings(**STRONG, **vapid_keys)
+
+
+def test_unpadded_and_padded_public_key_both_accepted(vapid_keys):
+    Settings(**STRONG, **{**vapid_keys, "vapid_public_key": vapid_keys["vapid_public_key"] + "="})
 
 
 def test_dev_secret_allowed_when_cookie_insecure(monkeypatch):
