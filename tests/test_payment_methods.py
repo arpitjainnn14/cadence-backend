@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 
 import pytest
@@ -63,8 +64,27 @@ def test_create_with_image_and_fetch_it(auth):
     img = auth.get(f"{URL}/{body['id']}/image")
     assert img.status_code == 200 and img.content == PNG
     assert img.headers["content-type"] == "image/png"
-    assert img.headers["cache-control"] == "private, max-age=86400"
+    assert img.headers["cache-control"] == "private, no-cache"
+    assert img.headers["etag"] == f'"{hashlib.sha256(PNG).hexdigest()}"'
     assert img.headers["x-content-type-options"] == "nosniff"
+
+
+def test_image_etag_and_conditional_get(auth):
+    pm = create(auth, image=(PNG, "image/png")).json()
+    url = f"{URL}/{pm['id']}/image"
+    etag = auth.get(url).headers["etag"]
+
+    hit = auth.get(url, headers={"If-None-Match": etag})
+    assert hit.status_code == 304 and hit.content == b""
+    assert hit.headers["etag"] == etag and hit.headers["cache-control"] == "private, no-cache"
+    assert hit.headers["x-content-type-options"] == "nosniff"
+    assert auth.get(url, headers={"If-None-Match": f'W/{etag}, "other"'}).status_code == 304
+    assert auth.get(url, headers={"If-None-Match": '"stale"'}).status_code == 200
+
+    auth.put(url, files={"image": ("a", JPEG, "image/jpeg")}, headers=csrf_headers(auth))
+    changed = auth.get(url, headers={"If-None-Match": etag})
+    assert changed.status_code == 200 and changed.content == JPEG
+    assert changed.headers["etag"] != etag
 
 
 @pytest.mark.parametrize("data,mime", [(JPEG, "image/jpeg"), (WEBP, "image/webp")])
@@ -125,6 +145,20 @@ def test_create_validation(auth, over):
 def test_create_upi_without_network(auth):
     r = create(auth, type="upi", bank=None, name="GPay", network=None)
     assert r.status_code == 201 and r.json()["network"] is None and r.json()["display_name"] == "GPay"
+
+
+def test_create_blank_network_and_color_mean_none(auth):
+    r = create(auth, type="upi", bank="", name="GPay", network="", color="")
+    assert r.status_code == 201
+    assert r.json()["network"] is None and r.json()["color"] is None and r.json()["bank"] is None
+    # a blank network does not rescue a credit card
+    assert create(auth, network="").status_code == 422
+
+
+def test_patch_blank_network_and_color_mean_none(auth):
+    pm = create(auth, type="other", bank=None, name="Cash", network=None, color="#112233").json()
+    r = auth.patch(f"{URL}/{pm['id']}", json={"color": "", "network": ""}, headers=csrf_headers(auth))
+    assert r.status_code == 200 and r.json()["color"] is None and r.json()["network"] is None
 
 
 def test_list_hides_inactive_and_orders(auth):

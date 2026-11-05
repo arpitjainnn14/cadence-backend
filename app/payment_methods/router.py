@@ -1,7 +1,8 @@
+import hashlib
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile
 
 from app.auth.deps import current_user
 from app.payment_methods import service
@@ -60,15 +61,26 @@ def replace_payment_method_image(method_id: uuid.UUID, image: Annotated[UploadFi
 
 
 @router.get("/{method_id}/image")
-def get_payment_method_image(method_id: uuid.UUID, repo: Repo) -> Response:
+def get_payment_method_image(
+    method_id: uuid.UUID, repo: Repo, if_none_match: Annotated[str | None, Header()] = None
+) -> Response:
     try:
         data, mime = service.get_image(repo, method_id)
     except service.PaymentMethodNotFound:
         raise HTTPException(status_code=404, detail="Payment method not found") from None
     except service.ImageNotFound:
         raise HTTPException(status_code=404, detail="Image not found") from None
-    return Response(
-        content=data,
-        media_type=mime,
-        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
-    )
+    # no-cache + ETag: the browser revalidates every time (cheap 304) so replaced art shows up immediately.
+    etag = f'"{hashlib.sha256(data).hexdigest()}"'
+    headers = {"Cache-Control": "private, no-cache", "ETag": etag, "X-Content-Type-Options": "nosniff"}
+    if _etag_matches(if_none_match, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=mime, headers=headers)
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """True if any listed validator (weak or strong) equals etag, or the header is `*`."""
+    if not if_none_match:
+        return False
+    candidates = [c.strip().removeprefix("W/") for c in if_none_match.split(",")]
+    return "*" in candidates or etag in candidates

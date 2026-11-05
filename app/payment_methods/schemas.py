@@ -11,7 +11,7 @@ Color = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}$")]
 
 
 def _blank_to_none(value: str | None) -> str | None:
-    """Blank (empty or whitespace-only) bank means no bank."""
+    """Blank (empty or whitespace-only) means null; for multipart forms, where null cannot be sent."""
     return value.strip() or None if isinstance(value, str) else value
 
 
@@ -22,7 +22,7 @@ class PaymentMethodCreate(BaseModel):
     network: CardNetwork | None = None
     color: Color | None = None
 
-    _bank_blank = field_validator("bank", mode="before")(_blank_to_none)
+    _blank = field_validator("bank", "network", "color", mode="before")(_blank_to_none)
 
     @model_validator(mode="after")
     def _network_matches_type(self) -> Self:
@@ -39,7 +39,7 @@ class PaymentMethodUpdate(BaseModel):
     is_active: bool | None = None
     color: Color | None = None
 
-    _bank_blank = field_validator("bank", mode="before")(_blank_to_none)
+    _blank = field_validator("bank", "network", "color", mode="before")(_blank_to_none)
 
     @model_validator(mode="after")
     def _required_fields_not_null(self) -> Self:
