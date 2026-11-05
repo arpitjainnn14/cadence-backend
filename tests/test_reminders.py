@@ -272,3 +272,42 @@ def test_push_test(auth, sender, repos):
     r = auth.post("/api/push/test", headers=h)
     assert r.json() == {"sent": 1, "removed": 1}
     assert sender.calls[0][1]["body"] == "Test notification from Subs"
+
+
+def test_default_sender_calls_webpush(monkeypatch, repos):
+    from app.reminders import deps
+
+    calls = []
+    monkeypatch.setattr(deps, "webpush", lambda **kw: calls.append(kw))
+    settings = Settings(
+        cookie_secure=False, vapid_private_key="PRIV", vapid_subject="mailto:me@example.com"
+    )
+    send = get_push_sender(settings)
+    push_sub = add_push(repos)
+    send(push_sub, {"title": "T"})
+    send(push_sub, {"title": "T"})
+
+    [first, second] = calls
+    assert first["subscription_info"] == {
+        "endpoint": "https://push.example/a",
+        "keys": {"p256dh": "p256", "auth": "authkey"},
+    }
+    assert first["data"] == '{"title": "T"}'
+    assert first["vapid_private_key"] == "PRIV"
+    assert first["vapid_claims"] == {"sub": "mailto:me@example.com"}
+    assert first["vapid_claims"] is not second["vapid_claims"]
+    assert first["ttl"] == deps.PUSH_TTL_SECONDS == 86400
+    assert first["headers"] == {"Urgency": "normal"}
+
+
+def test_push_list_loaded_once_per_run(repos, monkeypatch):
+    add_sub(repos)
+    add_sub(repos, merchant_name="Other")
+    add_push(repos, "https://push.example/gone")
+    add_push(repos, "https://push.example/ok")
+    calls = []
+    original = repos["push"].list
+    monkeypatch.setattr(repos["push"], "list", lambda: calls.append(1) or original())
+    sender = FakeSender(fail={"https://push.example/gone": 410})
+    assert run(repos, sender) == {"due": 2, "sent": 2, "removed": 1}
+    assert len(calls) == 1

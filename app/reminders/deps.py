@@ -10,6 +10,8 @@ from app.reminders.models import PushSubscription
 from app.reminders.repository import PushSubscriptionRepository, ReminderLogRepository
 from app.reminders.service import Sender
 
+PUSH_TTL_SECONDS = 86400  # 24 h: lets APNs/FCM hold the message while the phone is unreachable
+
 
 def get_push_repo(db: DbSession) -> PushSubscriptionRepository:
     return PushSubscriptionRepository(db)
@@ -20,7 +22,11 @@ def get_reminder_log_repo(db: DbSession) -> ReminderLogRepository:
 
 
 def get_push_sender(settings: Annotated[Settings, Depends(get_settings)]) -> Sender:
-    """The real sender (tests override this dependency)."""
+    """The real sender (tests override this dependency).
+
+    `vapid_private_key` must be the raw base64url key (what `vapid --gen` or
+    `web-push generate-vapid-keys` produce), not PEM.
+    """
 
     def send(push_sub: PushSubscription, payload: dict) -> None:
         webpush(
@@ -28,6 +34,8 @@ def get_push_sender(settings: Annotated[Settings, Depends(get_settings)]) -> Sen
             data=json.dumps(payload),
             vapid_private_key=settings.vapid_private_key,
             vapid_claims={"sub": settings.vapid_subject},  # fresh dict: pywebpush mutates it
+            ttl=PUSH_TTL_SECONDS,
+            headers={"Urgency": "normal"},
             timeout=10,
         )
 

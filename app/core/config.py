@@ -29,6 +29,11 @@ class Settings(BaseSettings):
                 value = getattr(self, name)
                 if value == "dev-insecure" or len(value) < 32:
                     raise ValueError(f"{name} must be set to a random value of at least 32 characters")
+            for name in ("vapid_private_key", "vapid_public_key", "vapid_subject"):
+                if not getattr(self, name):
+                    raise ValueError(f"{name} must be set in production")
+            if not self.vapid_subject.startswith(("mailto:", "https://")):
+                raise ValueError("vapid_subject must start with mailto: or https://")
         return self
 
 

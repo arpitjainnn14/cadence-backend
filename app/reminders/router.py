@@ -22,7 +22,22 @@ from app.subscriptions.deps import get_subscription_repo
 from app.subscriptions.repository import SubscriptionRepository
 
 router = APIRouter(prefix="/api/push", tags=["push"], dependencies=[Depends(current_user)])
-internal_router = APIRouter(prefix="/api/internal", tags=["internal"])
+
+
+def require_scheduler_secret(
+    settings: Annotated[Settings, Depends(get_settings)],
+    x_scheduler_secret: Annotated[str, Header()] = "",
+) -> None:
+    """403 unless the X-Scheduler-Secret header matches (checked before any DB session is opened)."""
+    if not x_scheduler_secret or not hmac.compare_digest(
+        x_scheduler_secret.encode(), settings.scheduler_secret.encode()
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+internal_router = APIRouter(
+    prefix="/api/internal", tags=["internal"], dependencies=[Depends(require_scheduler_secret)]
+)
 
 AppSettings = Annotated[Settings, Depends(get_settings)]
 PushRepo = Annotated[PushSubscriptionRepository, Depends(get_push_repo)]
@@ -56,15 +71,11 @@ def test_push(repo: PushRepo, sender: Sender) -> PushResult:
 
 @internal_router.post("/run-reminders", response_model=RunRemindersOut)
 def run_reminders(
-    settings: AppSettings,
     subs: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
     push_repo: PushRepo,
     reminder_log: Annotated[ReminderLogRepository, Depends(get_reminder_log_repo)],
     payment_methods: Annotated[PaymentMethodRepository, Depends(get_payment_method_repo)],
     sender: Sender,
-    x_scheduler_secret: Annotated[str, Header()] = "",
 ) -> dict[str, int]:
     """Called by the scheduler; authenticated by shared secret, not by user cookie."""
-    if not x_scheduler_secret or not hmac.compare_digest(x_scheduler_secret.encode(), settings.scheduler_secret.encode()):
-        raise HTTPException(status_code=403, detail="Forbidden")
     return service.run_reminders(subs, push_repo, reminder_log, payment_methods, today_ist(), sender)

@@ -40,6 +40,19 @@ def test_get_db_rolls_back_and_reraises_on_exception(engine, probe_table):
     assert _count(engine) == 0
 
 
+VAPID = {"vapid_private_key": "priv", "vapid_public_key": "pub", "vapid_subject": "mailto:a@example.com"}
+
+
+def test_empty_vapid_rejected_when_cookie_secure():
+    with pytest.raises(ValueError, match="vapid_private_key"):
+        Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32)
+
+
+def test_bad_vapid_subject_rejected_when_cookie_secure():
+    with pytest.raises(ValueError, match="vapid_subject"):
+        Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32, **{**VAPID, "vapid_subject": "dev"})
+
+
 def test_dev_secret_rejected_when_cookie_secure():
     with pytest.raises(ValidationError):
         Settings(cookie_secure=True)
@@ -51,7 +64,7 @@ def test_short_secret_rejected_when_cookie_secure():
 
 
 def test_strong_secrets_allowed_when_cookie_secure():
-    Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32)
+    Settings(cookie_secure=True, jwt_secret="x" * 32, scheduler_secret="y" * 32, **VAPID)
 
 
 def test_dev_secret_allowed_when_cookie_insecure(monkeypatch):
