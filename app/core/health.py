@@ -16,6 +16,10 @@ class HealthRepository:
         """Run SELECT 1; raises if the database is unreachable."""
         self.db.execute(text("SELECT 1"))
 
+    def reset(self) -> None:
+        """Roll back the session, clearing any aborted transaction."""
+        self.db.rollback()
+
 
 def get_health_repo(db: DbSession) -> HealthRepository:
     return HealthRepository(db)
