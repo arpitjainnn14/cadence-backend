@@ -26,3 +26,21 @@ def test_swagger_html_has_csrf_interceptor(client, user):
     assert "requestInterceptor" in html
     assert "X-CSRF-Token" in html and "csrf_token" in html
     assert "/api/openapi.json" in html
+
+
+def test_assets_pinned_to_exact_versions(client, user):
+    login(client)
+    swagger, redoc = client.get("/api/docs").text, client.get("/api/redoc").text
+    assert "swagger-ui-dist@5.34.1/" in swagger and "swagger-ui-dist@5/" not in swagger
+    assert "redoc@2.5.4/" in redoc and "redoc@2/" not in redoc
+
+
+def test_swagger_refuses_to_serve_without_interceptor_marker(client, user, monkeypatch):
+    from fastapi.responses import HTMLResponse
+
+    from app.core import docs
+
+    monkeypatch.setattr(docs, "get_swagger_ui_html", lambda **kw: HTMLResponse("<html>no marker</html>"))
+    login(client)
+    with pytest.raises(RuntimeError, match="CSRF interceptor"):
+        client.get("/api/docs")
