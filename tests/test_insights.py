@@ -37,7 +37,7 @@ def auth(client, user):
 def add(db, name, amount, currency=INR, cycle=M, category="Other", status="active", pm=None, start=None):
     sub = SubscriptionRepository(db).add(
         merchant_name=name, merchant_domain=resolve_domain(name), amount=Decimal(amount), currency=currency, billing_cycle=cycle,
-        start_date=start or today_ist(), category=category, status=status, payment_method_id=pm,
+        billing_anchor_date=start or today_ist(), category=category, status=status, payment_method_id=pm,
     )
     db.commit()
     return sub

@@ -8,7 +8,7 @@ from app.shared.enums import Currency, SubscriptionStatus
 from app.subscriptions.merchants import logo_url, resolve_domain
 from app.subscriptions.models import Subscription
 from app.subscriptions.repository import SubscriptionRepository
-from app.subscriptions.schemas import MerchantResolution, SubscriptionIn, SubscriptionOut
+from app.subscriptions.schemas import MerchantResolution, SubscriptionIn, SubscriptionOut, SubscriptionUpdate
 
 SortKey = Literal["cost", "renewal", "name"]
 _STORED_FIELDS = tuple(
@@ -24,6 +24,10 @@ class UnknownPaymentMethod(Exception):
     pass
 
 
+class InvalidDates(Exception):
+    """A date rule was broken; the message is safe to show the client."""
+
+
 def resolve_merchant(name: str) -> MerchantResolution:
     """Domain and logo URL for a merchant name; both None if unknown."""
     domain = resolve_domain(name)
@@ -36,7 +40,7 @@ def to_out(sub: Subscription, today: date) -> SubscriptionOut:
     is_inr = sub.currency == Currency.INR
     return SubscriptionOut(
         **{f: getattr(sub, f) for f in _STORED_FIELDS},
-        next_renewal=next_renewal(sub.start_date, sub.billing_cycle, today),
+        next_renewal=next_renewal(sub.billing_anchor_date, sub.billing_cycle, today),
         logo_url=logo_url(sub.merchant_domain) if sub.merchant_domain else None,
         yearly_amount=yearly,
         amount_inr=sub.amount if is_inr else None,
@@ -56,11 +60,25 @@ def _domain(data: SubscriptionIn, current: Subscription | None) -> str | None:
     return data.merchant_domain or resolve_domain(data.merchant_name)
 
 
-def _fields(data: SubscriptionIn, payment_methods: PaymentMethodRepository, current: Subscription | None) -> dict:
-    """Column values for `data`, after validating the payment method and deriving domain and cancelled_at."""
+def _fields(
+    data: SubscriptionIn | SubscriptionUpdate,
+    payment_methods: PaymentMethodRepository,
+    current: Subscription | None,
+    today: date,
+) -> dict:
+    """Column values for `data`, after validating dates and payment method and deriving domain and cancelled_at.
+
+    next_billing_date becomes the billing anchor. When it is omitted (PUT only) the stored anchor is kept.
+    """
+    if data.next_billing_date is not None and data.next_billing_date < today:
+        raise InvalidDates("Next billing date can't be in the past")
+    if data.started_on is not None and data.started_on > today:
+        raise InvalidDates("Started on can't be in the future")
     if data.payment_method_id is not None and payment_methods.get(data.payment_method_id) is None:
         raise UnknownPaymentMethod
-    fields = data.model_dump()
+    fields = data.model_dump(exclude={"next_billing_date"})
+    if data.next_billing_date is not None:
+        fields["billing_anchor_date"] = data.next_billing_date
     fields["merchant_domain"] = _domain(data, current)
     if data.status != SubscriptionStatus.cancelled:
         fields["cancelled_at"] = None
@@ -80,18 +98,22 @@ def get_subscription(repo: SubscriptionRepository, sub_id: uuid.UUID) -> Subscri
 
 
 def create_subscription(
-    repo: SubscriptionRepository, payment_methods: PaymentMethodRepository, data: SubscriptionIn
+    repo: SubscriptionRepository, payment_methods: PaymentMethodRepository, data: SubscriptionIn, today: date
 ) -> Subscription:
     """Create a subscription; fills the domain from the merchant name if omitted."""
-    return repo.add(**_fields(data, payment_methods, None))
+    return repo.add(**_fields(data, payment_methods, None, today))
 
 
 def replace_subscription(
-    repo: SubscriptionRepository, payment_methods: PaymentMethodRepository, sub_id: uuid.UUID, data: SubscriptionIn
+    repo: SubscriptionRepository,
+    payment_methods: PaymentMethodRepository,
+    sub_id: uuid.UUID,
+    data: SubscriptionUpdate,
+    today: date,
 ) -> Subscription:
     """Full replace; cancelled_at is set on entering cancelled and cleared on leaving it."""
     sub = get_subscription(repo, sub_id)
-    repo.update(sub, _fields(data, payment_methods, sub))
+    repo.update(sub, _fields(data, payment_methods, sub, today))
     return sub
 
 

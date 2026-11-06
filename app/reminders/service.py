@@ -81,7 +81,7 @@ def run_reminders(
     due = sent = removed = 0
     targets = push_repo.list()
     for sub in subs.list(status=SubscriptionStatus.active):
-        if next_renewal(sub.start_date, sub.billing_cycle, today) != target:
+        if next_renewal(sub.billing_anchor_date, sub.billing_cycle, today) != target:
             continue
         if not reminder_log.claim(sub.id, target):
             continue

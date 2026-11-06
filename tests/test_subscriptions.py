@@ -1,10 +1,11 @@
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 
 from app.payment_methods.repository import PaymentMethodRepository
+from app.shared.billing import today_ist
 from app.shared.enums import BillingCycle, Currency, PaymentMethodType, SubscriptionStatus
 from app.subscriptions import merchants
 from app.subscriptions.repository import SubscriptionRepository
@@ -25,7 +26,7 @@ def body(**over):
         "amount": "649.00",
         "currency": "INR",
         "billing_cycle": "monthly",
-        "start_date": "2026-01-15",
+        "next_billing_date": (today_ist() + timedelta(days=10)).isoformat(),
         "category": "Streaming",
         "status": "active",
         **over,
@@ -102,7 +103,7 @@ def test_amount_check_constraint_rejects_zero(db):
     repo = SubscriptionRepository(db)
     fields = dict(
         merchant_name="Zero", merchant_domain=None, amount=Decimal("0"), currency=Currency.INR,
-        billing_cycle=BillingCycle.monthly, start_date=date(2026, 1, 1), payment_method_id=None,
+        billing_cycle=BillingCycle.monthly, billing_anchor_date=date(2026, 1, 1), payment_method_id=None,
         category="Other", notes=None, status=SubscriptionStatus.active,
     )
     with pytest.raises(IntegrityError):
@@ -114,7 +115,7 @@ def test_repo_crud_and_filters(db):
     repo = SubscriptionRepository(db)
     fields = dict(
         merchant_domain=None, amount=Decimal("10"), currency=Currency.INR, billing_cycle=BillingCycle.monthly,
-        start_date=date(2026, 1, 1), payment_method_id=None, category="Other", notes=None,
+        billing_anchor_date=date(2026, 1, 1), payment_method_id=None, category="Other", notes=None,
         status=SubscriptionStatus.active, cancelled_at=None,
     )
     a = repo.add(merchant_name="A", **fields)
@@ -189,8 +190,8 @@ def test_sort_cost_inr_first_then_usd_each_by_yearly_desc_then_name(auth):
 
 
 def test_sort_name_and_renewal(auth):
-    create(auth, merchant_name="b", start_date="2026-01-20")
-    create(auth, merchant_name="a", start_date="2026-01-25")
+    create(auth, merchant_name="b", next_billing_date=(today_ist() + timedelta(days=20)).isoformat())
+    create(auth, merchant_name="a", next_billing_date=(today_ist() + timedelta(days=25)).isoformat())
     assert [s["merchant_name"] for s in auth.get(URL, params={"sort": "name"}).json()] == ["a", "b"]
     renewals = [s["next_renewal"] for s in auth.get(URL, params={"sort": "renewal"}).json()]
     assert renewals == sorted(renewals)
@@ -212,7 +213,7 @@ def test_filters(auth):
     [
         {"amount": "0"},
         {"amount": "-5"},
-        {"category": "Gaming"},
+        {"category": "Bogus"},
         {"merchant_name": ""},
         {"merchant_name": "x" * 81},
         {"notes": "x" * 501},

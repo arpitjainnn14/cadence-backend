@@ -18,6 +18,15 @@ CATEGORIES = [
     "Food delivery",
     "Shopping",
     "News",
+    "Gaming",
+    "Education",
+    "Productivity",
+    "Telecom",
+    "Utilities",
+    "Health",
+    "Travel",
+    "Finance",
+    "Insurance",
     "Other",
 ]
 
@@ -32,7 +41,8 @@ class Subscription(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     currency: Mapped[Currency] = mapped_column(pg_enum(Currency, "currency"))
     billing_cycle: Mapped[BillingCycle] = mapped_column(pg_enum(BillingCycle, "billing_cycle"))
-    start_date: Mapped[date] = mapped_column(Date)
+    billing_anchor_date: Mapped[date] = mapped_column(Date)  # renewals are computed from this
+    started_on: Mapped[date | None] = mapped_column(Date)  # history only
     payment_method_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("payment_methods.id", ondelete="SET NULL"), index=True
     )

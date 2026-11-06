@@ -17,7 +17,8 @@ class SubscriptionIn(BaseModel):
     amount: Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
     currency: Currency
     billing_cycle: BillingCycle
-    start_date: date
+    next_billing_date: date
+    started_on: date | None = None
     payment_method_id: uuid.UUID | None = None
     category: str = "Other"
     notes: Annotated[str, StringConstraints(max_length=500)] | None = None
@@ -39,6 +40,12 @@ class SubscriptionIn(BaseModel):
         return value
 
 
+class SubscriptionUpdate(SubscriptionIn):
+    """PUT body: like SubscriptionIn, but omitting next_billing_date keeps the stored billing anchor."""
+
+    next_billing_date: date | None = None
+
+
 class SubscriptionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -48,7 +55,7 @@ class SubscriptionOut(BaseModel):
     amount: Decimal
     currency: Currency
     billing_cycle: BillingCycle
-    start_date: date
+    started_on: date | None
     payment_method_id: uuid.UUID | None
     category: str
     notes: str | None

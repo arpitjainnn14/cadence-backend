@@ -59,3 +59,29 @@ def test_migration_downgrade_roundtrip():
         command.upgrade(cfg, "head")
     finally:
         eng.dispose()
+
+
+def test_billing_anchor_migration_backfills_and_downgrades():
+    from sqlalchemy import text
+
+    eng = create_engine(TEST_DATABASE_URL)
+    try:
+        reset_schema(eng)
+        cfg = alembic_config(TEST_DATABASE_URL)
+        command.upgrade(cfg, "0003")
+        with eng.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO subscriptions (id, merchant_name, amount, currency, billing_cycle, start_date) "
+                "VALUES (gen_random_uuid(), 'Old', 10, 'INR', 'monthly', '2025-01-31')"
+            ))
+        command.upgrade(cfg, "0004")
+        with eng.begin() as conn:
+            row = conn.execute(text("SELECT billing_anchor_date, started_on FROM subscriptions")).one()
+            assert str(row.billing_anchor_date) == "2025-01-31" and str(row.started_on) == "2025-01-31"
+            conn.execute(text("UPDATE subscriptions SET started_on = NULL, billing_anchor_date = '2025-02-28'"))
+        command.downgrade(cfg, "0003")
+        with eng.begin() as conn:
+            assert str(conn.execute(text("SELECT start_date FROM subscriptions")).scalar_one()) == "2025-02-28"
+    finally:
+        command.upgrade(alembic_config(TEST_DATABASE_URL), "head")  # leave the shared schema at head
+        eng.dispose()

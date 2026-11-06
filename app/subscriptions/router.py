@@ -12,7 +12,7 @@ from app.subscriptions import service
 from app.subscriptions.deps import get_subscription_repo
 from app.subscriptions.models import CATEGORIES
 from app.subscriptions.repository import SubscriptionRepository
-from app.subscriptions.schemas import MerchantResolution, SubscriptionIn, SubscriptionOut
+from app.subscriptions.schemas import MerchantResolution, SubscriptionIn, SubscriptionOut, SubscriptionUpdate
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"], dependencies=[Depends(current_user)])
 merchants_router = APIRouter(prefix="/api/merchants", tags=["subscriptions"], dependencies=[Depends(current_user)])
@@ -31,6 +31,8 @@ def _write(fn, *args):
         return fn(*args)
     except service.SubscriptionNotFound:
         raise HTTPException(status_code=404, detail="Subscription not found") from None
+    except service.InvalidDates as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     except service.UnknownPaymentMethod:
         raise HTTPException(status_code=422, detail="Unknown payment method") from None
 
@@ -55,7 +57,7 @@ def list_subscriptions(
 
 @router.post("", status_code=201, response_model=SubscriptionOut)
 def create_subscription(data: SubscriptionIn, repo: Repo, payment_methods: PaymentMethods):
-    return _out(_write(service.create_subscription, repo, payment_methods, data))
+    return _out(_write(service.create_subscription, repo, payment_methods, data, today_ist()))
 
 
 @router.get("/{sub_id}", response_model=SubscriptionOut)
@@ -65,9 +67,9 @@ def get_subscription(sub_id: uuid.UUID, repo: Repo):
 
 @router.put("/{sub_id}", response_model=SubscriptionOut)
 def replace_subscription(
-    sub_id: uuid.UUID, data: SubscriptionIn, repo: Repo, payment_methods: PaymentMethods
+    sub_id: uuid.UUID, data: SubscriptionUpdate, repo: Repo, payment_methods: PaymentMethods
 ):
-    return _out(_write(service.replace_subscription, repo, payment_methods, sub_id, data))
+    return _out(_write(service.replace_subscription, repo, payment_methods, sub_id, data, today_ist()))
 
 
 @router.delete("/{sub_id}", status_code=204)
