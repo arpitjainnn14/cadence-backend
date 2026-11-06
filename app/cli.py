@@ -24,7 +24,7 @@ from app.shared.enums import CardNetwork, PaymentMethodType
 MIN_PASSWORD_LENGTH = 8
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 DEFAULT_CARDS_FILE = Path(__file__).resolve().parent.parent / "seed" / "cards.json"
-UPI_APPS = ("GPay", "PhonePe", "Paytm")
+UPI_APPS = ("GPay", "PhonePe", "Paytm", "CRED UPI", "slice UPI")
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Cadence operator commands.")
 

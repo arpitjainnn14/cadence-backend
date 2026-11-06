@@ -123,7 +123,8 @@ def test_seed_idempotent(cli_db):
     cli_db.expire_all()
     assert len(cards(cli_db)) == 11
     upi = cli_db.scalars(select(PaymentMethod).where(PaymentMethod.type == PaymentMethodType.upi)).all()
-    assert sorted(p.name for p in upi) == ["GPay", "Paytm", "PhonePe"]
+    assert sorted(p.name for p in upi) == ["CRED UPI", "GPay", "Paytm", "PhonePe", "slice UPI"]
+    assert len(cards(cli_db)) + len(upi) == 16
     assert all(p.bank is None and p.network is None and p.image is None for p in upi)
     assert all(c.image and c.image_mime == "image/webp" for c in cards(cli_db))
     sapphiros = [c for c in cards(cli_db) if c.name == "Sapphiro"]
