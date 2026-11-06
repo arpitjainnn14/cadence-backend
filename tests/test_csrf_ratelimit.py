@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.auth import ratelimit, service
 from app.auth.models import LoginAttempt, RefreshToken
 from app.auth.repository import LoginAttemptRepository
-from tests.conftest import EMAIL, PASSWORD, csrf_headers, login
+from tests.conftest import EMAIL, PASSWORD, csrf_headers, login, set_refresh_cookie
 
 LOCKED = {"detail": "Too many attempts. Try again later."}
 
@@ -255,3 +256,95 @@ def test_is_locked_policy(db):
     ratelimit.record_attempt(repo, "a@x.com", "1.1.1.1", False, at=datetime.now(UTC))
     assert ratelimit.is_locked(repo, "A@x.com", "9.9.9.9", now=datetime.now(UTC))
     assert not ratelimit.is_locked(repo, "a@x.com", "1.1.1.1", now=now + timedelta(days=3650))
+
+
+# --- change password ---
+
+CHANGE = "/api/auth/change-password"
+NEW_PASSWORD = "brand-new-pass"
+
+
+def change(client, current=PASSWORD, new=NEW_PASSWORD, headers=True):
+    return client.post(
+        CHANGE, json={"current_password": current, "new_password": new}, headers=csrf_headers(client) if headers else {}
+    )
+
+
+def test_change_password_requires_auth(client, user):
+    assert change(client).status_code == 401  # valid CSRF, no session
+
+
+def test_change_password_requires_csrf(client, user):
+    login(client)
+    assert change(client, headers=False).status_code == 403
+
+
+def test_change_password_wrong_current_400_and_attempt_persists(real_uow_client, engine):
+    login(real_uow_client)
+    r = change(real_uow_client, current="wrong-password")
+    assert r.status_code == 400
+    assert r.json() == {"detail": "Current password is incorrect"}
+    with Session(engine) as s:
+        failed = [a for a in s.scalars(select(LoginAttempt)).all() if not a.success]
+        assert len(failed) == 1 and failed[0].email == EMAIL
+
+
+def test_change_password_locks_out_after_5_failures(real_uow_client):
+    login(real_uow_client)
+    for _ in range(5):
+        assert change(real_uow_client, current="wrong-password").status_code == 400
+    r = change(real_uow_client)  # even the right password is refused while locked
+    assert r.status_code == 429
+    assert r.json() == LOCKED
+
+
+def test_change_password_same_password_422(client, user):
+    login(client)
+    r = change(client, new=PASSWORD)
+    assert r.status_code == 422
+    assert r.json() == {"detail": "New password must be different"}
+
+
+@pytest.mark.parametrize("new", ["short7!", "x" * 1025])
+def test_change_password_new_length_422(client, user, new):
+    login(client)
+    assert change(client, new=new).status_code == 422
+
+
+def test_change_password_success(real_uow_client, engine):
+    client = real_uow_client
+    login(client)
+    other_device_refresh = client.cookies["refresh_token"]
+    old_access_cookie = client.cookies["access_token"]
+
+    r = change(client)
+    assert r.status_code == 200
+    assert r.json() == {"email": EMAIL}
+
+    # This device got a fresh working session.
+    assert client.cookies["access_token"] != old_access_cookie
+    assert client.cookies["refresh_token"] != other_device_refresh
+    assert client.get("/api/auth/me").status_code == 200
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 200
+
+    # Another device's refresh token no longer works.
+    set_refresh_cookie(client, other_device_refresh)
+    assert client.post("/api/auth/refresh", headers=csrf_headers(client)).status_code == 401
+
+    # New password logs in, old one does not.
+    client.cookies.clear()
+    assert login(client, password=PASSWORD).status_code == 401
+    assert login(client, password=NEW_PASSWORD).status_code == 200
+
+
+def test_revoke_all_for_user_repository(db, user):
+    from app.auth.models import RefreshToken
+    from app.auth.repository import RefreshTokenRepository
+
+    repo = RefreshTokenRepository(db)
+    now = datetime.now(UTC)
+    for h in ("a", "b"):
+        repo.add(RefreshToken(user_id=user.id, family_id=uuid.uuid4(), token_hash=h, expires_at=now + timedelta(days=1)))
+    repo.revoke_all_for_user(user.id, now)
+    db.expire_all()
+    assert all(t.revoked_at is not None for t in db.scalars(select(RefreshToken)))

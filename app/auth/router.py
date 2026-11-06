@@ -8,7 +8,8 @@ from app.auth.cookies import clear_auth_cookies, set_auth_cookies
 from app.auth.deps import current_user, get_login_attempt_repo, get_refresh_token_repo, get_user_repo
 from app.auth.models import User
 from app.auth.repository import LoginAttemptRepository, RefreshTokenRepository, UserRepository
-from app.auth.schemas import LoginRequest, UserOut
+from app.auth.schemas import ChangePasswordRequest, LoginRequest, UserOut
+from app.auth.security import verify_password
 from app.core.config import Settings, get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -91,4 +92,32 @@ def logout(
 
 @router.get("/me", response_model=UserOut)
 def me(user: Annotated[User, Depends(current_user)]) -> User:
+    return user
+
+
+@router.post("/change-password", response_model=UserOut)
+def change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    response: Response,
+    user: Annotated[User, Depends(current_user)],
+    users: Users,
+    tokens: Tokens,
+    attempts: Attempts,
+    settings: SettingsDep,
+) -> User | JSONResponse:
+    # Same rate limit and response-not-raise pattern as login: a wrong current password must persist its attempt.
+    ip = ratelimit.client_ip(request)
+    attempts.lock_for(user.email)
+    now = service.now()
+    if ratelimit.is_locked(attempts, user.email, ip, now):
+        return JSONResponse(status_code=429, content={"detail": "Too many attempts. Try again later."})
+    correct = verify_password(body.current_password, user.password_hash)
+    ratelimit.record_attempt(attempts, user.email, ip, success=correct, at=now)
+    if not correct:
+        return JSONResponse(status_code=400, content={"detail": "Current password is incorrect"})
+    if body.new_password == body.current_password:
+        return JSONResponse(status_code=422, content={"detail": "New password must be different"})
+    access, refresh = service.change_password(users, tokens, user, body.new_password, now)
+    set_auth_cookies(response, settings, access, refresh)
     return user

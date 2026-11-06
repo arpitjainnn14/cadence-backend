@@ -91,3 +91,12 @@ def revoke_refresh(tokens: RefreshTokenRepository, raw: str) -> None:
     token = tokens.get_by_hash(hash_token(raw))
     if token is not None and token.revoked_at is None:
         tokens.revoke(token, now())
+
+
+def change_password(
+    users: UserRepository, tokens: RefreshTokenRepository, user: User, new_password: str, at: datetime
+) -> tuple[str, str]:
+    """Set a new password, log out every device, and start a fresh session. Returns (access, refresh) for this device."""
+    users.set_password_hash(user, hash_password(new_password))
+    tokens.revoke_all_for_user(user.id, at)
+    return issue_session(tokens, user)

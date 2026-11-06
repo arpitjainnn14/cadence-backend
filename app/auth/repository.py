@@ -33,6 +33,11 @@ class UserRepository:
         self.db.flush()
         return user
 
+    def set_password_hash(self, user: User, password_hash: str) -> None:
+        """Replace the user's password hash. Flushes; the caller's unit of work commits."""
+        user.password_hash = password_hash
+        self.db.flush()
+
 
 class RefreshTokenRepository:
     def __init__(self, db: Session) -> None:
@@ -52,6 +57,14 @@ class RefreshTokenRepository:
         self.db.execute(
             update(RefreshToken)
             .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+
+    def revoke_all_for_user(self, user_id: uuid.UUID, now: datetime) -> None:
+        """Revoke every still-active refresh token of the user, on every device."""
+        self.db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
             .values(revoked_at=now)
         )
 
