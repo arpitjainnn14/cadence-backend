@@ -1,9 +1,11 @@
 import uuid
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Literal
 
+from app.insights.repository import SettingsRepository
 from app.insights.schemas import (
+    Budget,
     CategoryTotal,
     ExpensiveSubscription,
     InsightsOut,
@@ -25,6 +27,38 @@ from app.subscriptions.service import to_out
 UPCOMING_LIMIT = 20
 MOST_EXPENSIVE_LIMIT = 10
 UNASSIGNED = "Unassigned"
+BUDGET_KEY = "monthly_budget_inr"
+MAX_BUDGET = Decimal(10_000_000)
+_CENT = Decimal("0.01")
+
+
+def get_budget(settings: SettingsRepository) -> Decimal | None:
+    """The stored monthly budget, or None if unset or the stored value is malformed or out of range."""
+    raw = settings.get(BUDGET_KEY)
+    if raw is None:
+        return None
+    try:
+        value = Decimal(raw)
+    except InvalidOperation:
+        return None
+    return value if value.is_finite() and 0 < value <= MAX_BUDGET else None
+
+
+def set_budget(settings: SettingsRepository, value: Decimal | None) -> Decimal | None:
+    """Store the budget normalised to 2 places (None clears it). Returns what is now stored."""
+    if value is None:
+        settings.delete(BUDGET_KEY)
+        return None
+    value = value.quantize(_CENT, ROUND_HALF_UP)
+    settings.set(BUDGET_KEY, str(value))
+    return value
+
+
+def _budget(monthly: Decimal | None, used: Decimal) -> Budget | None:
+    if monthly is None:
+        return None
+    percent = int((used * 100 / monthly).quantize(Decimal(1), ROUND_HALF_UP))
+    return Budget(monthly=monthly, used=used, remaining=monthly - used, percent_used=percent, over=used > monthly)
 
 
 def _active(subs_repo: SubscriptionRepository) -> list[Subscription]:
@@ -45,8 +79,13 @@ def _ref(method: PaymentMethod | None) -> PaymentMethodRef | None:
     return PaymentMethodRef(id=method.id, name=method.display_name, has_image=method.has_image) if method else None
 
 
-def summary(subs_repo: SubscriptionRepository, pm_repo: PaymentMethodRepository, today: date) -> SummaryOut:
-    """Active totals (INR subs at the top level, USD subs under `usd`) and the next 20 renewals of either."""
+def summary(
+    subs_repo: SubscriptionRepository,
+    pm_repo: PaymentMethodRepository,
+    settings: SettingsRepository,
+    today: date,
+) -> SummaryOut:
+    """Active totals (INR subs at the top level, USD subs under `usd`), the budget, and the next 20 renewals."""
     subs = _active(subs_repo)
     methods = {m.id: m for m in pm_repo.list(include_inactive=True)}
     inr_subs = [s for s in subs if s.currency == Currency.INR]
@@ -56,9 +95,11 @@ def summary(subs_repo: SubscriptionRepository, pm_repo: PaymentMethodRepository,
         (to_out(s, today) for s in subs),
         key=lambda o: (o.next_renewal, o.merchant_name.lower(), str(o.id)),
     )[:UPCOMING_LIMIT]
+    inr_totals = _totals(inr_subs)
     return SummaryOut(
-        **_totals(inr_subs).model_dump(),
+        **inr_totals.model_dump(),
         usd=_totals(usd_subs) if usd_subs else None,
+        budget=_budget(get_budget(settings), inr_totals.monthly),
         upcoming=[
             UpcomingRenewal(
                 subscription_id=o.id,

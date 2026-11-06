@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer
 
 from app.shared.enums import Currency
 
@@ -35,10 +35,29 @@ class Totals(BaseModel):
     yearly: Money
 
 
+class Budget(BaseModel):
+    """Monthly budget (INR) against this month's INR spend. `used` and `percent_used` ignore USD subscriptions."""
+
+    monthly: Money
+    used: Money
+    remaining: Money  # negative when over budget
+    percent_used: int  # rounded half up; can exceed 100
+    over: bool
+
+
+class SettingsIn(BaseModel):
+    monthly_budget_inr: Annotated[Decimal, Field(gt=0, le=10_000_000, decimal_places=2, allow_inf_nan=False)] | None
+
+
+class SettingsOut(BaseModel):
+    monthly_budget_inr: Money | None
+
+
 class SummaryOut(Totals):
     """INR totals at the top level; `usd` totals the active USD subscriptions separately (null if none)."""
 
     usd: Totals | None
+    budget: Budget | None
     upcoming: list[UpcomingRenewal]
 
 

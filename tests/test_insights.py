@@ -8,7 +8,7 @@ from app.shared.billing import CYCLE_MONTHS, today_ist
 from app.shared.enums import BillingCycle, Currency, PaymentMethodType
 from app.subscriptions.repository import SubscriptionRepository
 from app.subscriptions.merchants import resolve_domain
-from tests.conftest import login
+from tests.conftest import csrf_headers, login
 
 M, Q, Y = BillingCycle.monthly, BillingCycle.quarterly, BillingCycle.yearly
 INR, USD = Currency.INR, Currency.USD
@@ -66,9 +66,9 @@ def test_requires_auth(client, user):
     assert client.get("/api/insights").status_code == 401
 
 
-def test_settings_endpoints_removed(auth):
-    assert auth.get("/api/settings").status_code == 404
-    assert auth.put("/api/settings", json={"usd_inr_rate": "90"}).status_code in (403, 404)
+def test_settings_unknown_rate_field_does_not_set_anything(auth):
+    """The old USD-rate setting is gone: only the budget is accepted."""
+    assert auth.put("/api/settings", json={"usd_inr_rate": "90"}, headers=csrf_headers(auth)).status_code == 422
 
 
 # --- summary ---
@@ -104,7 +104,7 @@ def test_summary_usd_only(auth, db):
 
 def test_summary_empty(auth):
     assert get(auth, "/api/summary") == {
-        "monthly": "0.00", "half_yearly": "0.00", "yearly": "0.00", "usd": None, "upcoming": [],
+        "monthly": "0.00", "half_yearly": "0.00", "yearly": "0.00", "usd": None, "budget": None, "upcoming": [],
     }
 
 
@@ -235,3 +235,87 @@ def test_insights_inr_only_and_usd_listed_separately(auth, db):
 def test_insights_usd_subscriptions_empty_without_usd(auth, db):
     seed(db, SAMPLE[:1])
     assert get(auth, "/api/insights")["usd_subscriptions"] == []
+
+
+# --- settings and budget ---
+
+SETTINGS = "/api/settings"
+
+
+def put_budget(client, value):
+    return client.put(SETTINGS, json={"monthly_budget_inr": value}, headers=csrf_headers(client))
+
+
+def test_settings_require_auth_and_csrf(client, user):
+    assert client.get(SETTINGS).status_code == 401
+    assert client.put(SETTINGS, json={"monthly_budget_inr": "1"}).status_code in (401, 403)
+    login(client)
+    assert client.put(SETTINGS, json={"monthly_budget_inr": "1"}, headers={"X-CSRF-Token": "bad"}).status_code == 403
+
+
+def test_budget_set_get_clear(auth):
+    assert get(auth, SETTINGS) == {"monthly_budget_inr": None}
+    r = put_budget(auth, "3000")
+    assert (r.status_code, r.json()) == (200, {"monthly_budget_inr": "3000.00"})
+    assert get(auth, SETTINGS) == {"monthly_budget_inr": "3000.00"}
+    assert put_budget(auth, "1234.5").json() == {"monthly_budget_inr": "1234.50"}
+    assert put_budget(auth, None).json() == {"monthly_budget_inr": None}
+    assert get(auth, SETTINGS) == {"monthly_budget_inr": None}
+    assert put_budget(auth, None).status_code == 200  # clearing an unset budget is fine
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "10000000.01", "1.234", "abc", "NaN", "Infinity", ""])
+def test_budget_validation_422(auth, value):
+    assert put_budget(auth, value).status_code == 422
+
+
+def test_budget_upper_bound_allowed_and_body_required(auth):
+    assert put_budget(auth, "10000000").json() == {"monthly_budget_inr": "10000000.00"}
+    assert auth.put(SETTINGS, json={}, headers=csrf_headers(auth)).status_code == 422
+
+
+def test_summary_budget_null_when_unset(auth, db):
+    seed(db)
+    assert get(auth, "/api/summary")["budget"] is None
+
+
+def test_summary_budget_maths(auth, db):
+    add(db, "A", "1000")
+    add(db, "B", "500", USD)  # not counted
+    put_budget(auth, "3000")
+    assert get(auth, "/api/summary")["budget"] == {
+        "monthly": "3000.00", "used": "1000.00", "remaining": "2000.00", "percent_used": 33, "over": False,
+    }
+
+
+def test_summary_budget_percent_rounds_half_up(auth, db):
+    add(db, "A", "1")
+    put_budget(auth, "200")  # 0.5% -> 1
+    assert get(auth, "/api/summary")["budget"]["percent_used"] == 1
+    put_budget(auth, "8")  # 12.5% -> 13
+    assert get(auth, "/api/summary")["budget"]["percent_used"] == 13
+
+
+def test_summary_budget_over(auth, db):
+    add(db, "A", "4500")
+    put_budget(auth, "3000")
+    assert get(auth, "/api/summary")["budget"] == {
+        "monthly": "3000.00", "used": "4500.00", "remaining": "-1500.00", "percent_used": 150, "over": True,
+    }
+
+
+def test_summary_budget_exactly_used_is_not_over(auth, db):
+    add(db, "A", "3000")
+    put_budget(auth, "3000")
+    b = get(auth, "/api/summary")["budget"]
+    assert (b["remaining"], b["percent_used"], b["over"]) == ("0.00", 100, False)
+
+
+@pytest.mark.parametrize("stored", ["garbage", "-1", "0", "NaN", "Infinity", "99999999999"])
+def test_malformed_stored_budget_is_treated_as_unset(auth, db, stored):
+    from app.insights.repository import SettingsRepository
+
+    SettingsRepository(db).set("monthly_budget_inr", stored)
+    db.commit()
+    assert get(auth, SETTINGS) == {"monthly_budget_inr": None}
+    assert get(auth, "/api/summary")["budget"] is None
