@@ -1,10 +1,11 @@
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 
 from app.payment_methods.repository import PaymentMethodRepository
+from app.shared.billing import today_ist
 from app.shared.enums import BillingCycle, Currency, PaymentMethodType, SubscriptionStatus
 from app.subscriptions import merchants
 from app.subscriptions.repository import SubscriptionRepository
@@ -25,7 +26,7 @@ def body(**over):
         "amount": "649.00",
         "currency": "INR",
         "billing_cycle": "monthly",
-        "start_date": "2026-01-15",
+        "next_billing_date": (today_ist() + timedelta(days=10)).isoformat(),
         "category": "Streaming",
         "status": "active",
         **over,
@@ -102,7 +103,7 @@ def test_amount_check_constraint_rejects_zero(db):
     repo = SubscriptionRepository(db)
     fields = dict(
         merchant_name="Zero", merchant_domain=None, amount=Decimal("0"), currency=Currency.INR,
-        billing_cycle=BillingCycle.monthly, start_date=date(2026, 1, 1), payment_method_id=None,
+        billing_cycle=BillingCycle.monthly, billing_anchor_date=date(2026, 1, 1), payment_method_id=None,
         category="Other", notes=None, status=SubscriptionStatus.active,
     )
     with pytest.raises(IntegrityError):
@@ -114,7 +115,7 @@ def test_repo_crud_and_filters(db):
     repo = SubscriptionRepository(db)
     fields = dict(
         merchant_domain=None, amount=Decimal("10"), currency=Currency.INR, billing_cycle=BillingCycle.monthly,
-        start_date=date(2026, 1, 1), payment_method_id=None, category="Other", notes=None,
+        billing_anchor_date=date(2026, 1, 1), payment_method_id=None, category="Other", notes=None,
         status=SubscriptionStatus.active, cancelled_at=None,
     )
     a = repo.add(merchant_name="A", **fields)
@@ -189,8 +190,8 @@ def test_sort_cost_inr_first_then_usd_each_by_yearly_desc_then_name(auth):
 
 
 def test_sort_name_and_renewal(auth):
-    create(auth, merchant_name="b", start_date="2026-01-20")
-    create(auth, merchant_name="a", start_date="2026-01-25")
+    create(auth, merchant_name="b", next_billing_date=(today_ist() + timedelta(days=20)).isoformat())
+    create(auth, merchant_name="a", next_billing_date=(today_ist() + timedelta(days=25)).isoformat())
     assert [s["merchant_name"] for s in auth.get(URL, params={"sort": "name"}).json()] == ["a", "b"]
     renewals = [s["next_renewal"] for s in auth.get(URL, params={"sort": "renewal"}).json()]
     assert renewals == sorted(renewals)
@@ -212,7 +213,7 @@ def test_filters(auth):
     [
         {"amount": "0"},
         {"amount": "-5"},
-        {"category": "Gaming"},
+        {"category": "Bogus"},
         {"merchant_name": ""},
         {"merchant_name": "x" * 81},
         {"notes": "x" * 501},
@@ -314,3 +315,85 @@ def test_cancel_sets_and_reactivate_clears_cancelled_at(auth):
 
 def test_mutations_need_csrf(auth):
     assert auth.post(URL, json=body()).status_code == 403
+
+
+# --- billing dates with a pinned "today" ---
+
+PINNED = date(2027, 2, 10)
+
+
+@pytest.fixture
+def pinned_today(monkeypatch):
+    """Pin the router's today_ist so date rules and next_renewal are deterministic."""
+    monkeypatch.setattr("app.subscriptions.router.today_ist", lambda: PINNED)
+    return PINNED
+
+
+def test_pinned_post_past_next_billing_date_422(auth, pinned_today):
+    r = create(auth, next_billing_date="2027-02-09")
+    assert (r.status_code, r.json()["detail"]) == (422, "Next billing date can't be in the past")
+    assert create(auth, next_billing_date="2027-02-10").status_code == 201
+
+
+def test_pinned_post_future_started_on_422(auth, pinned_today):
+    r = create(auth, next_billing_date="2027-03-01", started_on="2027-02-11")
+    assert (r.status_code, r.json()["detail"]) == (422, "Started on can't be in the future")
+    assert create(auth, next_billing_date="2027-03-01", started_on="2027-02-10").status_code == 201
+
+
+def test_pinned_put_without_next_billing_date_keeps_jan_31_anchor(auth, db, pinned_today):
+    sub = SubscriptionRepository(db).add(
+        merchant_name="Gym", merchant_domain=None, amount=Decimal("10"), currency=Currency.INR,
+        billing_cycle=BillingCycle.monthly, billing_anchor_date=date(2027, 1, 31), started_on=None,
+        payment_method_id=None, category="Other", notes=None, status=SubscriptionStatus.active,
+    )
+    db.commit()
+    url = f"{URL}/{sub.id}"
+    for over in ({"next_billing_date": ...}, {"next_billing_date": None}):
+        r = auth.put(url, json=body(merchant_name="Gym", **over), headers=csrf_headers(auth))
+        assert r.status_code == 200
+        assert r.json()["next_renewal"] == "2027-02-28"  # Feb clamp, anchor still the 31st
+    db.expire_all()
+    assert sub.billing_anchor_date == date(2027, 1, 31)
+    from app.shared.billing import next_renewal
+
+    assert next_renewal(sub.billing_anchor_date, BillingCycle.monthly, date(2027, 3, 1)) == date(2027, 3, 31)
+
+
+def test_pinned_put_with_new_date_moves_anchor(auth, pinned_today):
+    sub = create(auth, next_billing_date="2027-03-20").json()
+    r = auth.put(f"{URL}/{sub['id']}", json=body(next_billing_date="2027-02-15"), headers=csrf_headers(auth))
+    assert r.json()["next_renewal"] == "2027-02-15"
+
+
+def test_put_omitting_started_on_clears_it(auth):
+    sub = create(auth, started_on="2024-03-05").json()
+    assert sub["started_on"] == "2024-03-05"
+    r = auth.put(f"{URL}/{sub['id']}", json=body(), headers=csrf_headers(auth))
+    assert r.json()["started_on"] is None  # PUT is a full replace of the other fields
+
+
+# --- categories ---
+
+
+def test_categories_list_order():
+    from app.subscriptions.models import CATEGORIES
+
+    assert CATEGORIES == [
+        "Streaming", "Music", "Software/AI", "Cloud storage", "Fitness", "Food delivery", "Shopping", "News",
+        "Gaming", "Education", "Productivity", "Telecom", "Utilities", "Health", "Travel", "Finance", "Insurance",
+        "Other",
+    ]
+
+
+@pytest.mark.parametrize(
+    "category",
+    ["Gaming", "Education", "Productivity", "Telecom", "Utilities", "Health", "Travel", "Finance", "Insurance"],
+)
+def test_new_categories_accepted(auth, category):
+    r = create(auth, merchant_name=f"Sub {category}", category=category)
+    assert r.status_code == 201
+    assert r.json()["category"] == category
+    listed = auth.get(URL, params={"category": category})
+    assert listed.status_code == 200
+    assert [s["id"] for s in listed.json()] == [r.json()["id"]]

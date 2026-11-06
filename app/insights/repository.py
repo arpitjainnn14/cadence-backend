@@ -16,3 +16,10 @@ class SettingsRepository:
         """Insert or overwrite a setting. Flushes; the caller's unit of work commits."""
         self.db.merge(AppSetting(key=key, value=value))
         self.db.flush()
+
+    def delete(self, key: str) -> None:
+        """Remove a setting; a no-op if it isn't set."""
+        setting = self.db.get(AppSetting, key)
+        if setting is not None:
+            self.db.delete(setting)
+            self.db.flush()

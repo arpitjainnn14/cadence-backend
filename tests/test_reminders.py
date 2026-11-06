@@ -54,7 +54,7 @@ def add_sub(repos, **over):
         "amount": Decimal("649"),
         "currency": Currency.INR,
         "billing_cycle": BillingCycle.yearly,
-        "start_date": DUE.replace(year=DUE.year - 1),
+        "billing_anchor_date": DUE.replace(year=DUE.year - 1),
         "payment_method_id": None,
         **over,
     }
@@ -108,8 +108,8 @@ def test_log_repo_release_allows_reclaim(repos):
 def test_due_exactly_two_days(repos):
     card = add_card(repos)
     add_sub(repos, payment_method_id=card.id)
-    add_sub(repos, merchant_name="Tomorrow", start_date=date(2025, 11, 6))
-    add_sub(repos, merchant_name="In3", start_date=date(2025, 11, 8))
+    add_sub(repos, merchant_name="Tomorrow", billing_anchor_date=date(2025, 11, 6))
+    add_sub(repos, merchant_name="In3", billing_anchor_date=date(2025, 11, 8))
     add_push(repos)
     sender = FakeSender()
 
@@ -269,7 +269,7 @@ def test_uses_ist_date(client, sender, repos, db, monkeypatch):
     monkeypatch.setattr(
         "app.reminders.router.today_ist", lambda: real(datetime(2026, 11, 4, 19, 0, tzinfo=UTC))
     )
-    add_sub(repos, start_date=date(2025, 11, 7))
+    add_sub(repos, billing_anchor_date=date(2025, 11, 7))
     add_push(repos)
     db.commit()
     assert internal(client).json()["due"] == 1
