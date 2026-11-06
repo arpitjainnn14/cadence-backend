@@ -34,6 +34,12 @@ def resolve_merchant(name: str) -> MerchantResolution:
     return MerchantResolution(domain=domain, logo_url=logo_url(domain) if domain else None)
 
 
+def _logo_for(sub: Subscription) -> str | None:
+    """Logo from the saved domain; for rows saved before their merchant was known, look the name up now."""
+    domain = sub.merchant_domain or resolve_domain(sub.merchant_name)
+    return logo_url(domain) if domain else None
+
+
 def to_out(sub: Subscription, today: date) -> SubscriptionOut:
     """The subscription plus derived fields. The INR fields are null for USD subscriptions (nothing is converted)."""
     yearly = yearly_amount(sub.amount, sub.billing_cycle)
@@ -41,7 +47,7 @@ def to_out(sub: Subscription, today: date) -> SubscriptionOut:
     return SubscriptionOut(
         **{f: getattr(sub, f) for f in _STORED_FIELDS},
         next_renewal=next_renewal(sub.billing_anchor_date, sub.billing_cycle, today),
-        logo_url=logo_url(sub.merchant_domain) if sub.merchant_domain else None,
+        logo_url=_logo_for(sub),
         yearly_amount=yearly,
         amount_inr=sub.amount if is_inr else None,
         yearly_inr=yearly if is_inr else None,

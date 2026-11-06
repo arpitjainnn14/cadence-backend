@@ -52,6 +52,14 @@ def create(client, **over):
         ("Cult.fit", "cult.fit"),
         ("JioHotstar", "hotstar.com"),
         ("ChatGPT Plus", "openai.com"),
+        ("Amazon", "amazon.in"),
+        ("Amazon Prime", "primevideo.com"),
+        ("Claude Pro", "claude.ai"),
+        ("Boot.dev", "boot.dev"),
+        ("Apple Music", "apple.com"),
+        ("Microsoft 365 Family", "microsoft.com"),
+        ("Times Prime", "timesprime.com"),
+        ("Airtel Xstream", "airtel.in"),
         ("Corner Gym", None),
         ("", None),
     ],
@@ -95,6 +103,18 @@ def test_sort_ties_broken_by_id(auth, sort):
 
 
 # --- repository ---
+
+
+def test_logo_falls_back_to_name_when_no_domain_was_saved(auth, db):
+    """Rows saved before their merchant was in KNOWN_MERCHANTS still get a logo."""
+    sub = SubscriptionRepository(db).add(
+        merchant_name="Claude Pro", merchant_domain=None, amount=Decimal("1950"), currency=Currency.INR,
+        billing_cycle=BillingCycle.monthly, billing_anchor_date=today_ist(), payment_method_id=None,
+        category="Software/AI", notes=None, status=SubscriptionStatus.active,
+    )
+    out = auth.get(f"/api/subscriptions/{sub.id}").json()
+    assert out["merchant_domain"] is None  # the stored value is untouched
+    assert "claude.ai" in out["logo_url"]
 
 
 def test_amount_check_constraint_rejects_zero(db):
