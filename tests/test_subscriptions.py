@@ -371,3 +371,29 @@ def test_put_omitting_started_on_clears_it(auth):
     assert sub["started_on"] == "2024-03-05"
     r = auth.put(f"{URL}/{sub['id']}", json=body(), headers=csrf_headers(auth))
     assert r.json()["started_on"] is None  # PUT is a full replace of the other fields
+
+
+# --- categories ---
+
+
+def test_categories_list_order():
+    from app.subscriptions.models import CATEGORIES
+
+    assert CATEGORIES == [
+        "Streaming", "Music", "Software/AI", "Cloud storage", "Fitness", "Food delivery", "Shopping", "News",
+        "Gaming", "Education", "Productivity", "Telecom", "Utilities", "Health", "Travel", "Finance", "Insurance",
+        "Other",
+    ]
+
+
+@pytest.mark.parametrize(
+    "category",
+    ["Gaming", "Education", "Productivity", "Telecom", "Utilities", "Health", "Travel", "Finance", "Insurance"],
+)
+def test_new_categories_accepted(auth, category):
+    r = create(auth, merchant_name=f"Sub {category}", category=category)
+    assert r.status_code == 201
+    assert r.json()["category"] == category
+    listed = auth.get(URL, params={"category": category})
+    assert listed.status_code == 200
+    assert [s["id"] for s in listed.json()] == [r.json()["id"]]
