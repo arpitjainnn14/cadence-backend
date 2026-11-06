@@ -1,8 +1,9 @@
-"""Operator CLI: `uv run python -m app.cli create-user --email E` and `... seed-cards [--file F]`.
+"""Operator CLI: `uv run python -m app.cli create-user --email E` `... seed-cards [--file F]` and `... update-cards --file F`.
 
 Settings fail closed on weak secrets, so local runs need `COOKIE_SECURE=false` (or real secrets) in the environment.
 """
 
+import io
 import json
 import re
 from collections.abc import Iterator
@@ -17,6 +18,7 @@ from app.auth.repository import UserRepository
 from app.auth.security import hash_password
 from app.core import db as core_db
 from app.payment_methods.repository import PaymentMethodRepository
+from app.payment_methods.service import InvalidPaymentMethod, read_image
 from app.shared.enums import CardNetwork, PaymentMethodType
 
 MIN_PASSWORD_LENGTH = 8
@@ -85,6 +87,41 @@ def seed_cards(
                 methods.add(PaymentMethodType.upi, None, upi_app, None)
                 created += 1
     typer.echo(f"Seeded: {created} new payment methods ({len(entries)} cards + {len(UPI_APPS)} UPI apps in catalogue).")
+
+
+@app.command("update-cards")
+def update_cards(
+    file: Annotated[Path, typer.Option(help="JSON list of {match, set, image}; images are read from the file's folder.")],
+) -> None:
+    """One-off: rename cards and apply real card art. Idempotent; all-or-nothing on a bad image.
+
+    A card is found by `match` (type credit_card, bank, name, network), else by `set`, so re-runs are safe.
+    """
+    entries = json.loads(file.read_text())
+    with unit_of_work() as session:
+        methods = PaymentMethodRepository(session)
+        updated = missing = 0
+        for entry in entries:
+            match, new = entry["match"], entry["set"]
+            network = CardNetwork(match["network"])
+            card_type = PaymentMethodType.credit_card
+            method = methods.find_by_identity(card_type, match["bank"], match["name"], network) or methods.find_by_identity(
+                card_type, new["bank"], new["name"], network
+            )
+            if method is None:
+                typer.echo(f"not found: {match['bank']} {match['name']} ({match['network']})", err=True)
+                missing += 1
+                continue
+            try:
+                image, mime = read_image(io.BytesIO((file.parent / entry["image"]).read_bytes()))
+            except InvalidPaymentMethod as e:
+                typer.echo(f"invalid image {entry['image']}: {e}; nothing was changed.", err=True)
+                raise typer.Exit(1) from None
+            methods.update(method, {"bank": new["bank"], "name": new["name"]})
+            methods.set_image(method, image, mime)
+            typer.echo(f"updated: {method.display_name}")
+            updated += 1
+    typer.echo(f"Done: {updated} updated, {missing} not found.")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 
@@ -25,8 +26,8 @@ class PaymentMethod(Base):
 
     @property
     def display_name(self) -> str:
-        """`bank name`, unless the name already starts with the bank (case-insensitive)."""
-        if self.bank and not self.name.lower().startswith(self.bank.lower()):
+        """`bank name`, unless the bank already appears in the name as a whole word (case-insensitive)."""
+        if self.bank and not re.search(rf"(?<!\w){re.escape(self.bank)}(?!\w)", self.name, re.IGNORECASE):
             return f"{self.bank} {self.name}"
         return self.name
 

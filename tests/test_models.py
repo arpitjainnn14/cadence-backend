@@ -1,3 +1,4 @@
+import pytest
 from alembic import command
 from sqlalchemy import create_engine
 
@@ -27,9 +28,20 @@ def test_display_name_prefixes_bank():
     assert _pm("ICICI", "Sapphiro").display_name == "ICICI Sapphiro"
 
 
-def test_display_name_skips_duplicate_bank_prefix():
-    assert _pm("Scapia", "Scapia").display_name == "Scapia"
-    assert _pm("scapia", "Scapia Federal").display_name == "Scapia Federal"
+@pytest.mark.parametrize(
+    ("bank", "name", "expected"),
+    [
+        ("ICICI", "Amazon Pay ICICI", "Amazon Pay ICICI"),
+        ("slice", "slice", "slice"),
+        ("HDFC Bank", "MoneyBack+", "HDFC Bank MoneyBack+"),
+        ("SBI Card", "Cashback", "SBI Card Cashback"),
+        ("Axis", "Scapia", "Axis Scapia"),
+        ("ICICI", "ICICIX Card", "ICICI ICICIX Card"),
+        ("Scapia", "The scapia Federal", "The scapia Federal"),
+    ],
+)
+def test_display_name_bank_as_whole_word(bank, name, expected):
+    assert _pm(bank, name).display_name == expected
 
 
 def test_display_name_without_bank():

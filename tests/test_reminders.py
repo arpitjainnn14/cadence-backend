@@ -123,12 +123,12 @@ def test_due_exactly_two_days(repos):
 
 
 def test_usd_body(repos):
-    card = add_card(repos, "HDFC", "Moneyback+")
+    card = add_card(repos, "HDFC Bank", "MoneyBack+")
     add_sub(repos, merchant_name="ChatGPT Plus", amount=Decimal("20"), currency=Currency.USD, payment_method_id=card.id)
     add_push(repos)
     sender = FakeSender()
     run(repos, sender)
-    assert sender.calls[0][1]["body"] == "ChatGPT Plus renews in 2 days · $20 · HDFC Moneyback+"
+    assert sender.calls[0][1]["body"] == "ChatGPT Plus renews in 2 days · $20 · HDFC Bank MoneyBack+"
 
 
 def test_no_card_body(repos):
