@@ -315,3 +315,59 @@ def test_cancel_sets_and_reactivate_clears_cancelled_at(auth):
 
 def test_mutations_need_csrf(auth):
     assert auth.post(URL, json=body()).status_code == 403
+
+
+# --- billing dates with a pinned "today" ---
+
+PINNED = date(2027, 2, 10)
+
+
+@pytest.fixture
+def pinned_today(monkeypatch):
+    """Pin the router's today_ist so date rules and next_renewal are deterministic."""
+    monkeypatch.setattr("app.subscriptions.router.today_ist", lambda: PINNED)
+    return PINNED
+
+
+def test_pinned_post_past_next_billing_date_422(auth, pinned_today):
+    r = create(auth, next_billing_date="2027-02-09")
+    assert (r.status_code, r.json()["detail"]) == (422, "Next billing date can't be in the past")
+    assert create(auth, next_billing_date="2027-02-10").status_code == 201
+
+
+def test_pinned_post_future_started_on_422(auth, pinned_today):
+    r = create(auth, next_billing_date="2027-03-01", started_on="2027-02-11")
+    assert (r.status_code, r.json()["detail"]) == (422, "Started on can't be in the future")
+    assert create(auth, next_billing_date="2027-03-01", started_on="2027-02-10").status_code == 201
+
+
+def test_pinned_put_without_next_billing_date_keeps_jan_31_anchor(auth, db, pinned_today):
+    sub = SubscriptionRepository(db).add(
+        merchant_name="Gym", merchant_domain=None, amount=Decimal("10"), currency=Currency.INR,
+        billing_cycle=BillingCycle.monthly, billing_anchor_date=date(2027, 1, 31), started_on=None,
+        payment_method_id=None, category="Other", notes=None, status=SubscriptionStatus.active,
+    )
+    db.commit()
+    url = f"{URL}/{sub.id}"
+    for over in ({"next_billing_date": ...}, {"next_billing_date": None}):
+        r = auth.put(url, json=body(merchant_name="Gym", **over), headers=csrf_headers(auth))
+        assert r.status_code == 200
+        assert r.json()["next_renewal"] == "2027-02-28"  # Feb clamp, anchor still the 31st
+    db.expire_all()
+    assert sub.billing_anchor_date == date(2027, 1, 31)
+    from app.shared.billing import next_renewal
+
+    assert next_renewal(sub.billing_anchor_date, BillingCycle.monthly, date(2027, 3, 1)) == date(2027, 3, 31)
+
+
+def test_pinned_put_with_new_date_moves_anchor(auth, pinned_today):
+    sub = create(auth, next_billing_date="2027-03-20").json()
+    r = auth.put(f"{URL}/{sub['id']}", json=body(next_billing_date="2027-02-15"), headers=csrf_headers(auth))
+    assert r.json()["next_renewal"] == "2027-02-15"
+
+
+def test_put_omitting_started_on_clears_it(auth):
+    sub = create(auth, started_on="2024-03-05").json()
+    assert sub["started_on"] == "2024-03-05"
+    r = auth.put(f"{URL}/{sub['id']}", json=body(), headers=csrf_headers(auth))
+    assert r.json()["started_on"] is None  # PUT is a full replace of the other fields
