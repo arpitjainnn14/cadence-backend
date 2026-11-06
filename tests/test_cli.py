@@ -167,6 +167,86 @@ def test_seed_does_not_write_settings(cli_db):
     assert SettingsRepository(cli_db).get("usd_inr_rate") is None
 
 
+# --- update-cards ---
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 20
+
+
+def write_update_file(tmp_path: Path, images: dict[str, bytes], entries: list[dict]) -> Path:
+    for fname, data in images.items():
+        (tmp_path / fname).write_bytes(data)
+    f = tmp_path / "cards.json"
+    f.write_text(json.dumps(entries))
+    return f
+
+
+def entry(match_bank, match_name, set_bank, set_name, image, network="visa"):
+    return {
+        "match": {"bank": match_bank, "name": match_name, "network": network},
+        "set": {"bank": set_bank, "name": set_name},
+        "image": image,
+    }
+
+
+def test_update_cards_renames_and_sets_image(cli_db, tmp_path: Path):
+    PaymentMethodRepository(cli_db).add(PaymentMethodType.credit_card, "HDFC", "Moneyback+", CardNetwork.visa)
+    cli_db.commit()
+    f = write_update_file(tmp_path, {"a.png": PNG}, [entry("HDFC", "Moneyback+", "HDFC Bank", "MoneyBack+", "a.png")])
+    result = runner.invoke(app, ["update-cards", "--file", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "updated: HDFC Bank MoneyBack+" in result.output
+    cli_db.expire_all()
+    [card] = cards(cli_db)
+    assert (card.bank, card.name, card.image, card.image_mime) == ("HDFC Bank", "MoneyBack+", PNG, "image/png")
+
+
+def test_update_cards_is_idempotent(cli_db, tmp_path: Path):
+    PaymentMethodRepository(cli_db).add(PaymentMethodType.credit_card, "HDFC", "Moneyback+", CardNetwork.visa)
+    cli_db.commit()
+    f = write_update_file(tmp_path, {"a.png": PNG}, [entry("HDFC", "Moneyback+", "HDFC Bank", "MoneyBack+", "a.png")])
+    for _ in range(2):
+        result = runner.invoke(app, ["update-cards", "--file", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "updated: HDFC Bank MoneyBack+" in result.output
+    cli_db.expire_all()
+    assert [(c.bank, c.name) for c in cards(cli_db)] == [("HDFC Bank", "MoneyBack+")]
+
+
+def test_update_cards_warns_on_unknown_and_continues(cli_db, tmp_path: Path):
+    PaymentMethodRepository(cli_db).add(PaymentMethodType.credit_card, "SBI", "Cashback", CardNetwork.visa)
+    cli_db.commit()
+    f = write_update_file(
+        tmp_path,
+        {"a.png": PNG},
+        [entry("Nope", "Ghost", "Nope", "Ghost", "a.png"), entry("SBI", "Cashback", "SBI Card", "Cashback", "a.png")],
+    )
+    result = runner.invoke(app, ["update-cards", "--file", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "not found: Nope Ghost" in result.output and "updated: SBI Card Cashback" in result.output
+    assert "1 updated, 1 not found" in result.output
+    cli_db.expire_all()
+    assert [c.bank for c in cards(cli_db)] == ["SBI Card"]
+
+
+def test_update_cards_invalid_image_changes_nothing(cli_db, tmp_path: Path):
+    repo = PaymentMethodRepository(cli_db)
+    repo.add(PaymentMethodType.credit_card, "SBI", "Cashback", CardNetwork.visa)
+    repo.add(PaymentMethodType.credit_card, "BOB", "Select", CardNetwork.mastercard)
+    cli_db.commit()
+    f = write_update_file(
+        tmp_path,
+        {"good.png": PNG, "bad.png": b"not an image"},
+        [
+            entry("SBI", "Cashback", "SBI Card", "Cashback", "good.png"),
+            entry("BOB", "Select", "BOBCARD", "Select", "bad.png", network="mastercard"),
+        ],
+    )
+    result = runner.invoke(app, ["update-cards", "--file", str(f)])
+    assert result.exit_code != 0
+    cli_db.expire_all()
+    assert sorted((c.bank, c.image) for c in cards(cli_db)) == [("BOB", None), ("SBI", None)]
+
+
 # --- repositories ---
 
 

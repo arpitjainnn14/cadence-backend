@@ -15,13 +15,13 @@ OUT_WIDTH = 800  # stored images are at most 800 px wide
 NETWORK_WORDMARK = {"visa": "VISA", "mastercard": "Mastercard", "rupay": "RuPay"}
 # (top-left, bottom-right) gradient colours per bank; all dark enough for white text.
 GRADIENTS = {
-    "HDFC": ((10, 40, 90), (4, 14, 40)),
+    "HDFC Bank": ((10, 40, 90), (4, 14, 40)),
     "ICICI": ((150, 50, 20), (50, 14, 10)),
-    "SBI": ((20, 90, 140), (8, 30, 60)),
+    "SBI Card": ((20, 90, 140), (8, 30, 60)),
     "Axis": ((40, 90, 80), (10, 30, 30)),
-    "Slice": ((70, 40, 130), (24, 12, 50)),
-    "IDFC First": ((120, 20, 50), (40, 8, 24)),
-    "BOB": ((190, 80, 20), (70, 24, 8)),
+    "slice": ((70, 40, 130), (24, 12, 50)),
+    "IDFC FIRST": ((120, 20, 50), (40, 8, 24)),
+    "BOBCARD": ((190, 80, 20), (70, 24, 8)),
 }
 FONT_CANDIDATES = ["/System/Library/Fonts/Helvetica.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
 
