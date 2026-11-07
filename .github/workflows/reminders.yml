@@ -1,0 +1,34 @@
+# Calls the backend's reminder job 3 times a day.
+# Vercel's free plan only allows one cron job a day, so GitHub Actions does the scheduling.
+# The job sends a push notification for every subscription that renews in exactly 2 days.
+# A reminder is never sent twice; if a send fails, the next run that day retries it.
+name: Renewal reminders
+
+on:
+  schedule:
+    # GitHub cron uses UTC. India (IST) is UTC+5:30.
+    - cron: "30 3 * * *"   # 09:00 IST
+    - cron: "30 7 * * *"   # 13:00 IST
+    - cron: "30 12 * * *"  # 18:00 IST
+  workflow_dispatch: {}     # lets you run it by hand from the Actions tab
+
+permissions: {}             # this job needs no access to the repository
+
+jobs:
+  run-reminders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the reminder endpoint
+        env:
+          SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+        run: |
+          if [ -z "$SCHEDULER_SECRET" ]; then
+            echo "::error::The SCHEDULER_SECRET repository secret is not set"; exit 1
+          fi
+          # --retry covers the first call waking a sleeping database; --fail turns HTTP errors into a failed run
+          curl --silent --show-error --fail-with-body \
+            --retry 3 --retry-delay 10 --retry-all-errors --max-time 60 \
+            -X POST "https://cadence.api.arpitjain.me/api/internal/run-reminders" \
+            -H "X-Scheduler-Secret: $SCHEDULER_SECRET"
+          echo
